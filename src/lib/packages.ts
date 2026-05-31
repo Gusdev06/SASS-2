@@ -11,8 +11,6 @@ export type CreditPackage = {
 export const CREDITS_PER_IMAGE = 5;
 
 export const PACKAGES_BRL: CreditPackage[] = [
-  { id: 'p10', credits: 30, price: 10, currency: 'BRL' },
-  { id: 'p25', credits: 75, price: 25, currency: 'BRL' },
   { id: 'p50', credits: 150, price: 50, currency: 'BRL' },
   { id: 'p75', credits: 250, price: 75, currency: 'BRL', bonusImages: 5 },
   { id: 'p100', credits: 350, price: 100, currency: 'BRL', bonusImages: 10 },
@@ -22,7 +20,6 @@ export const PACKAGES_BRL: CreditPackage[] = [
 ];
 
 export const PACKAGES_USD: CreditPackage[] = [
-  { id: 'u5', credits: 75, price: 5, currency: 'USD' },
   { id: 'u10', credits: 150, price: 10, currency: 'USD' },
   { id: 'u15', credits: 250, price: 15, currency: 'USD', bonusImages: 5 },
   { id: 'u20', credits: 350, price: 20, currency: 'USD', bonusImages: 10 },
