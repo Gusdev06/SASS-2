@@ -1,8 +1,4 @@
-const TMPFILES_UPLOAD = 'https://tmpfiles.org/api/v1/upload';
-
-function toDownloadUrl(viewUrl: string): string {
-  return viewUrl.replace(/^(https?:\/\/tmpfiles\.org)\/(?!dl\/)/i, '$1/dl/');
-}
+import { createServiceClient } from '@/lib/supabase/server';
 
 function extFromContentType(ct: string | null): string {
   if (!ct) return 'jpg';
@@ -12,9 +8,9 @@ function extFromContentType(ct: string | null): string {
   return 'jpg';
 }
 
-export async function proxyToTmpfiles(
+export async function uploadToSupabase(
   remoteUrl: string,
-  filenameHint = 'image'
+  pathHint = 'image'
 ): Promise<string> {
   const res = await fetch(remoteUrl);
   if (!res.ok) throw new Error('storage_fetch_failed');
@@ -22,17 +18,17 @@ export async function proxyToTmpfiles(
   const ext = extFromContentType(ct);
   const bytes = new Uint8Array(await res.arrayBuffer());
 
-  const form = new FormData();
-  form.append(
-    'file',
-    new Blob([bytes as unknown as ArrayBuffer], { type: ct ?? 'image/jpeg' }),
-    `${filenameHint}.${ext}`
-  );
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'generations';
+  const key = `${pathHint}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-  const up = await fetch(TMPFILES_UPLOAD, { method: 'POST', body: form });
-  if (!up.ok) throw new Error(`storage_upload_failed_${up.status}`);
-  const json = (await up.json()) as { status?: string; data?: { url?: string } };
-  const view = json?.data?.url;
-  if (!view) throw new Error('storage_upload_no_url');
-  return toDownloadUrl(view);
+  const supabase = createServiceClient();
+  const { error } = await supabase.storage.from(bucket).upload(key, bytes, {
+    contentType: ct ?? 'image/jpeg',
+    upsert: false,
+  });
+  if (error) throw new Error(`storage_upload_failed_${error.message}`);
+
+  const { data } = supabase.storage.from(bucket).getPublicUrl(key);
+  if (!data?.publicUrl) throw new Error('storage_upload_no_url');
+  return data.publicUrl;
 }

@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { generateImage } from '@/lib/image-engine';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
-import { proxyToTmpfiles } from '@/lib/storage';
+import { uploadToSupabase } from '@/lib/storage';
 import {
   CREDITS_PER_IMAGE,
   CREDITS_PER_VIDEO,
@@ -204,7 +204,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
     }
 
     const rawUrl = await generateImage(prompt, inputUrls);
-    const outputUrl = await proxyToTmpfiles(rawUrl, genId);
+    const outputUrl = await uploadToSupabase(rawUrl, `generations/${user.id}/${genId}`);
     await service
       .from('generations')
       .update({ output_url: outputUrl, status: 'succeeded' })
