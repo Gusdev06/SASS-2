@@ -15,14 +15,14 @@ type SoonKind = 'motion' | 'blowjob' | 'doggy' | 'veo';
 type TabId = Kind | SoonKind;
 
 const TABS: { id: TabId; en: string; pt: string; es: string; icon: string; soon?: boolean }[] = [
-  { id: 'undress', en: 'Undress', pt: 'Undress', es: 'Undress', icon: '🔥' },
-  { id: 'faceswap', en: 'Face Swap', pt: 'Face Swap', es: 'Face Swap', icon: '🎭' },
+  { id: 'undress', en: 'Undress', pt: 'Despir', es: 'Desnudar', icon: '🔥' },
+  { id: 'faceswap', en: 'Face Swap', pt: 'Troca de Rosto', es: 'Cambio de Rostro', icon: '🎭' },
   { id: 'edit', en: 'Edit', pt: 'Editar', es: 'Editar', icon: '✏️' },
   { id: 'video', en: 'Video (NSFW)', pt: 'Vídeo (NSFW)', es: 'Video (NSFW)', icon: '🎬' },
   { id: 'veo', en: 'Veo 3.1', pt: 'Veo 3.1', es: 'Veo 3.1', icon: '🎥', soon: true },
-  { id: 'motion', en: 'Motion Control', pt: 'Motion Control', es: 'Motion Control', icon: '🕹️', soon: true },
-  { id: 'blowjob', en: 'Blowjob', pt: 'Blowjob', es: 'Blowjob', icon: '💋', soon: true },
-  { id: 'doggy', en: 'Doggystyle', pt: 'Doggystyle', es: 'Doggystyle', icon: '🐶', soon: true },
+  { id: 'motion', en: 'Motion Control', pt: 'Controle de Movimento', es: 'Control de Movimiento', icon: '🕹️', soon: true },
+  { id: 'blowjob', en: 'Blowjob', pt: 'Boquete', es: 'Mamada', icon: '💋', soon: true },
+  { id: 'doggy', en: 'Doggystyle', pt: 'De Quatro', es: 'Estilo Perrito', icon: '🐶', soon: true },
 ];
 
 const labelFor = (tab: typeof TABS[number], lang: Lang) =>

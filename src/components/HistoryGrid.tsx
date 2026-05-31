@@ -12,13 +12,16 @@ type Item = {
   credits_spent: number;
 };
 
-const kindLabel: Record<string, string> = {
-  enhance: 'Enhance',
-  undress: 'Undress',
-  faceswap: 'Face Swap',
-  edit: 'Edit',
-  video: 'Video',
+const kindLabels: Record<string, Record<Lang, string>> = {
+  enhance: { en: 'Enhance', pt: 'Melhorar', es: 'Mejorar' },
+  undress: { en: 'Undress', pt: 'Despir', es: 'Desnudar' },
+  faceswap: { en: 'Face Swap', pt: 'Troca de Rosto', es: 'Cambio de Rostro' },
+  edit: { en: 'Edit', pt: 'Editar', es: 'Editar' },
+  video: { en: 'Video', pt: 'Vídeo', es: 'Video' },
 };
+
+const labelForKind = (kind: string | null, lang: Lang) =>
+  (kind && kindLabels[kind]?.[lang]) ?? '—';
 
 const isVideoUrl = (url: string) => /\.(mp4|webm|mov)(\?|$)/i.test(url);
 
@@ -86,13 +89,13 @@ export default function HistoryGrid({
                 )
               ) : (
                 <div className="w-full h-full grid place-items-center text-bone-mute text-xs">
-                  {kindLabel[g.kind ?? ''] ?? '—'}
+                  {labelForKind(g.kind, lang)}
                 </div>
               )}
             </button>
             <figcaption className="absolute inset-x-0 bottom-0 p-3 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/40 to-transparent">
               <span className="text-[10px] font-bold tracking-widest text-bone-dim uppercase">
-                {kindLabel[g.kind ?? ''] ?? '—'}
+                {labelForKind(g.kind, lang)}
               </span>
               {g.output_url && (
                 <a
