@@ -4,18 +4,21 @@ import LangSwitch from './LangSwitch';
 import DemoPanel from './DemoPanel';
 import Logo from './Logo';
 
-const REGISTER_URL = '/signup';
-const LOGIN_URL = '/login';
+const LANG_PATH: Record<Lang, string> = { en: 'en', es: 'es', pt: 'pt-br' };
 
 export default function Landing({ lang }: { lang: Lang }) {
   const tr = (k: Parameters<typeof t>[0]) => t(k, lang);
+  const base = `/${LANG_PATH[lang]}`;
+  const HOME_URL = base;
+  const LOGIN_URL = `${base}/login`;
+  const REGISTER_URL = `${base}/signup`;
 
   return (
     <div className="bg-ink-900 text-bone min-h-screen">
       {/* ============ NAV ============ */}
       <div className="fixed top-4 left-2 right-2 md:top-5 md:left-6 md:right-6 z-50">
         <nav className="max-w-[980px] mx-auto flex items-center justify-between px-4 md:px-6 py-3 bg-ink-800/60 backdrop-blur-md border border-white/10 rounded-2xl">
-          <Link href="/" className="flex items-center gap-2 font-bold text-base md:text-lg">
+          <Link href={HOME_URL} className="flex items-center gap-2 font-bold text-base md:text-lg">
             <Logo />
             goz.ai
           </Link>

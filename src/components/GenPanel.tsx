@@ -10,14 +10,15 @@ import { t, type Lang } from '@/lib/i18n';
 const ANON_KEY = 'goz_free_used';
 
 type Kind = 'undress' | 'faceswap' | 'edit' | 'video';
-type SoonKind = 'motion' | 'blowjob' | 'doggy';
+type SoonKind = 'motion' | 'blowjob' | 'doggy' | 'veo';
 type TabId = Kind | SoonKind;
 
 const TABS: { id: TabId; en: string; pt: string; es: string; icon: string; soon?: boolean }[] = [
   { id: 'undress', en: 'Undress', pt: 'Undress', es: 'Undress', icon: '🔥' },
   { id: 'faceswap', en: 'Face Swap', pt: 'Face Swap', es: 'Face Swap', icon: '🎭' },
   { id: 'edit', en: 'Edit', pt: 'Editar', es: 'Editar', icon: '✏️' },
-  { id: 'video', en: 'Video', pt: 'Vídeo', es: 'Video', icon: '🎬' },
+  { id: 'video', en: 'Video (NSFW)', pt: 'Vídeo (NSFW)', es: 'Video (NSFW)', icon: '🎬' },
+  { id: 'veo', en: 'Veo 3.1', pt: 'Veo 3.1', es: 'Veo 3.1', icon: '🎥', soon: true },
   { id: 'motion', en: 'Motion Control', pt: 'Motion Control', es: 'Motion Control', icon: '🕹️', soon: true },
   { id: 'blowjob', en: 'Blowjob', pt: 'Blowjob', es: 'Blowjob', icon: '💋', soon: true },
   { id: 'doggy', en: 'Doggystyle', pt: 'Doggystyle', es: 'Doggystyle', icon: '🐶', soon: true },

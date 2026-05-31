@@ -26,8 +26,12 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getUser();
   const user = data.user;
   const path = request.nextUrl.pathname;
-  const isAuthRoute = path.startsWith('/login') || path.startsWith('/signup') || path.startsWith('/auth');
-  const isProtected = path.startsWith('/pricing') || path.startsWith('/admin');
+
+  const LOCALE_PREFIX_RE = /^\/(en|es|pt-br)(\/(login|signup)(\/.*)?)$/;
+  const localeAuthMatch = path.match(LOCALE_PREFIX_RE);
+  const strippedPath = localeAuthMatch ? localeAuthMatch[2] : path;
+  const isAuthRoute = strippedPath.startsWith('/login') || strippedPath.startsWith('/signup') || strippedPath.startsWith('/auth');
+  const isProtected = strippedPath.startsWith('/pricing') || strippedPath.startsWith('/admin');
 
   const country = (
     request.headers.get('x-vercel-ip-country') ??
@@ -41,6 +45,8 @@ export async function updateSession(request: NextRequest) {
 
   if (path === '/en' || path.startsWith('/en/')) {
     response.cookies.set('lang', 'en', { path: '/', maxAge: oneYear, sameSite: 'lax' });
+  } else if (path === '/es' || path.startsWith('/es/')) {
+    response.cookies.set('lang', 'es', { path: '/', maxAge: oneYear, sameSite: 'lax' });
   } else if (path === '/pt-br' || path.startsWith('/pt-br/')) {
     response.cookies.set('lang', 'pt', { path: '/', maxAge: oneYear, sameSite: 'lax' });
   } else if (country && !request.cookies.get('lang')) {
@@ -62,6 +68,14 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);
+  }
+
+  if (localeAuthMatch) {
+    const url = request.nextUrl.clone();
+    url.pathname = strippedPath;
+    const rewriteResponse = NextResponse.rewrite(url, { request });
+    for (const c of response.cookies.getAll()) rewriteResponse.cookies.set(c);
+    return rewriteResponse;
   }
 
   return response;
