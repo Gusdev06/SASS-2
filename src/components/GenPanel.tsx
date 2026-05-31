@@ -9,14 +9,18 @@ import { t, type Lang } from '@/lib/i18n';
 
 const ANON_KEY = 'goz_free_used';
 
-type Kind = 'enhance' | 'undress' | 'faceswap' | 'edit' | 'video';
+type Kind = 'undress' | 'faceswap' | 'edit' | 'video';
+type SoonKind = 'motion' | 'blowjob' | 'doggy';
+type TabId = Kind | SoonKind;
 
-const TABS: { id: Kind; en: string; pt: string; es: string; icon: string }[] = [
-  { id: 'enhance', en: 'Enhance', pt: 'Enhance', es: 'Mejorar', icon: '✨' },
+const TABS: { id: TabId; en: string; pt: string; es: string; icon: string; soon?: boolean }[] = [
   { id: 'undress', en: 'Undress', pt: 'Undress', es: 'Undress', icon: '🔥' },
   { id: 'faceswap', en: 'Face Swap', pt: 'Face Swap', es: 'Face Swap', icon: '🎭' },
   { id: 'edit', en: 'Edit', pt: 'Editar', es: 'Editar', icon: '✏️' },
   { id: 'video', en: 'Video', pt: 'Vídeo', es: 'Video', icon: '🎬' },
+  { id: 'motion', en: 'Motion Control', pt: 'Motion Control', es: 'Motion Control', icon: '🕹️', soon: true },
+  { id: 'blowjob', en: 'Blowjob', pt: 'Blowjob', es: 'Blowjob', icon: '💋', soon: true },
+  { id: 'doggy', en: 'Doggystyle', pt: 'Doggystyle', es: 'Doggystyle', icon: '🐶', soon: true },
 ];
 
 const labelFor = (tab: typeof TABS[number], lang: Lang) =>
@@ -31,7 +35,7 @@ export default function GenPanel({
   credits: number;
   isAnon?: boolean;
 }) {
-  const [kind, setKind] = useState<Kind>('enhance');
+  const [kind, setKind] = useState<Kind>('undress');
   const [editPrompt, setEditPrompt] = useState('');
   const [reusedUrl, setReusedUrl] = useState<string | null>(null);
   const [result, setResult] = useState<GenResult | null>(null);
@@ -175,8 +179,6 @@ export default function GenPanel({
   const uploadHint =
     kind === 'faceswap'
       ? t('uploadTwoFace', lang)
-      : kind === 'enhance'
-      ? t('uploadOneEnhance', lang)
       : t('uploadOne', lang);
 
   return (
@@ -184,20 +186,29 @@ export default function GenPanel({
       {/* tabs */}
       <div className="border-b border-white/10 px-2 pt-2 flex gap-1 overflow-x-auto">
         {TABS.map((tb) => {
-          const active = kind === tb.id;
+          const active = !tb.soon && kind === tb.id;
+          const soonLabel = lang === 'pt' ? 'em breve' : lang === 'es' ? 'pronto' : 'soon';
           return (
             <button
               key={tb.id}
               type="button"
-              onClick={() => resetKind(tb.id)}
+              disabled={tb.soon}
+              onClick={() => !tb.soon && resetKind(tb.id as Kind)}
               className={`relative px-4 py-3 text-sm font-semibold rounded-t-lg transition-colors whitespace-nowrap ${
-                active
+                tb.soon
+                  ? 'text-bone-mute/60 cursor-not-allowed'
+                  : active
                   ? 'bg-ink-700 text-bone border-b-2 border-lime'
                   : 'text-bone-dim hover:text-bone hover:bg-white/5'
               }`}
             >
               <span className="mr-2">{tb.icon}</span>
               {labelFor(tb, lang)}
+              {tb.soon && (
+                <span className="ml-2 text-[9px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded bg-lime/15 text-lime align-middle">
+                  {soonLabel}
+                </span>
+              )}
             </button>
           );
         })}
