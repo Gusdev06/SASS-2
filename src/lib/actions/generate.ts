@@ -4,8 +4,9 @@ import sharp from 'sharp';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { generateImage } from '@/lib/replicate';
+import { generateImage } from '@/lib/image-engine';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
+import { proxyToTmpfiles } from '@/lib/storage';
 import {
   CREDITS_PER_IMAGE,
   CREDITS_PER_VIDEO,
@@ -152,7 +153,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       });
       return { ok: true, outputUrl, remaining: 0, watermarked: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'Falha na geração.' };
+      console.error('[generate] anon fail', err);
+      return { ok: false, error: 'Falha na geração.' };
     }
   }
 
@@ -201,7 +203,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       return { ok: true, isVideo: true, runId, remaining: profile?.credits ?? 0 };
     }
 
-    const outputUrl = await generateImage(prompt, inputUrls);
+    const rawUrl = await generateImage(prompt, inputUrls);
+    const outputUrl = await proxyToTmpfiles(rawUrl, genId);
     await service
       .from('generations')
       .update({ output_url: outputUrl, status: 'succeeded' })
@@ -214,7 +217,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
     revalidatePath('/dashboard');
     return { ok: true, outputUrl, remaining: profile?.credits ?? 0 };
   } catch (err) {
-    const reason = err instanceof Error ? err.message : 'Falha na geração.';
+    console.error('[generate] auth fail', err);
+    const reason = 'Falha na geração.';
     const { data: refunded } = await service.rpc('refund_generation', {
       p_gen_id: genId,
       p_reason: reason,

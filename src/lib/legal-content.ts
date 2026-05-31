@@ -28,7 +28,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
       },
       {
         heading: '2. O serviço',
-        body: `O ${C.name} oferece geração de imagens e vídeos com IA a partir de prompts de texto ou referências enviadas pelo usuário. O serviço é prestado "como está", sem garantia de disponibilidade ininterrupta, e está sujeito a janelas de manutenção e indisponibilidade dos fornecedores de modelos (Replicate, ComfyDeploy e congêneres).`,
+        body: `O ${C.name} oferece geração de imagens e vídeos com IA a partir de prompts de texto ou referências enviadas pelo usuário. O serviço é prestado "como está", sem garantia de disponibilidade ininterrupta, e está sujeito a janelas de manutenção e indisponibilidade dos fornecedores de modelos (ComfyDeploy e outros provedores de IA).`,
       },
       {
         heading: '3. Créditos, pagamentos e reembolso',
@@ -78,7 +78,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
       },
       {
         heading: '2. The service',
-        body: `${C.name} provides AI image and video generation from text prompts or user-supplied references. The service is provided "as is" without guarantee of uninterrupted availability, and is subject to maintenance windows and downtime of upstream model providers (Replicate, ComfyDeploy and similar).`,
+        body: `${C.name} provides AI image and video generation from text prompts or user-supplied references. The service is provided "as is" without guarantee of uninterrupted availability, and is subject to maintenance windows and downtime of upstream model providers (ComfyDeploy and other AI providers).`,
       },
       {
         heading: '3. Credits, payments and refunds',
@@ -128,7 +128,7 @@ export const TERMS: Record<Lang, LegalDoc> = {
       },
       {
         heading: '2. El servicio',
-        body: `${C.name} ofrece generación de imágenes y videos con IA a partir de prompts de texto o referencias enviadas por el usuario. El servicio se presta "tal cual", sin garantía de disponibilidad ininterrumpida, y está sujeto a ventanas de mantenimiento e indisponibilidad de los proveedores de modelos (Replicate, ComfyDeploy y similares).`,
+        body: `${C.name} ofrece generación de imágenes y videos con IA a partir de prompts de texto o referencias enviadas por el usuario. El servicio se presta "tal cual", sin garantía de disponibilidad ininterrumpida, y está sujeto a ventanas de mantenimiento e indisponibilidad de los proveedores de modelos (ComfyDeploy y otros proveedores de IA).`,
       },
       {
         heading: '3. Créditos, pagos y reembolsos',
@@ -189,7 +189,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       },
       {
         heading: '4. Compartilhamento com terceiros',
-        body: `Compartilhamos dados estritamente necessários com: Supabase (banco de dados e autenticação), Replicate e ComfyDeploy (provedores de modelos de IA — recebem o prompt e arquivos enviados, mas não dados de identidade), PerfectPay (gateway de pagamento — recebe nome, email e dados de cobrança), Vercel (hospedagem). Não vendemos seus dados a terceiros.`,
+        body: `Compartilhamos dados estritamente necessários com: Supabase (banco de dados e autenticação), ComfyDeploy e outros provedores de modelos de IA ( — recebem o prompt e arquivos enviados, mas não dados de identidade), PerfectPay (gateway de pagamento — recebe nome, email e dados de cobrança), Vercel (hospedagem). Não vendemos seus dados a terceiros.`,
       },
       {
         heading: '5. Retenção e armazenamento de gerações',
@@ -213,7 +213,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       },
       {
         heading: '10. Transferência internacional',
-        body: `Alguns parceiros (Supabase, Replicate, ComfyDeploy, Vercel) podem processar dados fora do Brasil. Garantimos contratos adequados de proteção de dados com cada um deles.`,
+        body: `Alguns parceiros (Supabase, ComfyDeploy, outros provedores de IA, Vercel) podem processar dados fora do Brasil. Garantimos contratos adequados de proteção de dados com cada um deles.`,
       },
       {
         heading: '11. Encarregado (DPO) e contato',
@@ -239,7 +239,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       },
       {
         heading: '4. Sharing with third parties',
-        body: `We share strictly necessary data with: Supabase (database and auth), Replicate and ComfyDeploy (AI model providers — receive prompt and uploaded files, no identity data), PerfectPay (payment gateway — receives name, email and billing data), Vercel (hosting). We do NOT sell your data.`,
+        body: `We share strictly necessary data with: Supabase (database and auth), ComfyDeploy and other AI model providers ( — receive prompt and uploaded files, no identity data), PerfectPay (payment gateway — receives name, email and billing data), Vercel (hosting). We do NOT sell your data.`,
       },
       {
         heading: '5. Retention and storage of generations',
@@ -263,7 +263,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       },
       {
         heading: '10. International transfers',
-        body: `Some partners (Supabase, Replicate, ComfyDeploy, Vercel) may process data outside Brazil. We maintain appropriate data-protection agreements with each of them.`,
+        body: `Some partners (Supabase, ComfyDeploy, outros provedores de IA, Vercel) may process data outside Brazil. We maintain appropriate data-protection agreements with each of them.`,
       },
       {
         heading: '11. DPO and contact',
@@ -289,7 +289,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       },
       {
         heading: '4. Compartición con terceros',
-        body: `Compartimos datos estrictamente necesarios con: Supabase (base de datos y autenticación), Replicate y ComfyDeploy (proveedores de modelos de IA — reciben el prompt y archivos enviados, sin datos de identidad), PerfectPay (pasarela de pago — recibe nombre, email y datos de facturación), Vercel (hosting). NO vendemos tus datos.`,
+        body: `Compartimos datos estrictamente necesarios con: Supabase (base de datos y autenticación), ComfyDeploy y otros proveedores de modelos de IA ( — reciben el prompt y archivos enviados, sin datos de identidad), PerfectPay (pasarela de pago — recibe nombre, email y datos de facturación), Vercel (hosting). NO vendemos tus datos.`,
       },
       {
         heading: '5. Retención y almacenamiento de generaciones',
@@ -313,7 +313,7 @@ export const PRIVACY: Record<Lang, LegalDoc> = {
       },
       {
         heading: '10. Transferencia internacional',
-        body: `Algunos socios (Supabase, Replicate, ComfyDeploy, Vercel) pueden procesar datos fuera de Brasil. Garantizamos acuerdos adecuados de protección de datos con cada uno de ellos.`,
+        body: `Algunos socios (Supabase, ComfyDeploy, outros provedores de IA, Vercel) pueden procesar datos fuera de Brasil. Garantizamos acuerdos adecuados de protección de datos con cada uno de ellos.`,
       },
       {
         heading: '11. DPO y contacto',

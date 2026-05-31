@@ -5,7 +5,7 @@
  *   1. Accept multipart/form-data with `image` (File)
  *   2. Validate size + MIME
  *   3. Check anon rate-limit (cookie + IP-hash header)
- *   4. Call Replicate (UNDRESS_PROMPT by default)
+ *   4. Generate image (UNDRESS_PROMPT by default)
  *   5. Apply HARD watermark via sharp + SVG composite
  *   6. Return data:image/jpeg;base64 result
  *
@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
-import { generateImage } from '@/lib/replicate';
+import { generateImage } from '@/lib/image-engine';
 import { UNDRESS_PROMPT } from '@/lib/prompts';
 
 export const runtime = 'nodejs';
@@ -136,28 +136,28 @@ export async function POST(req: NextRequest) {
   const t0 = Date.now();
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
 
-  // ---- call Replicate ----
+  // ---- generate image ----
   let rawUrl: string;
   try {
     const buf = Buffer.from(await file.arrayBuffer());
     const dataUri = `data:${file.type};base64,${buf.toString('base64')}`;
     rawUrl = await generateImage(prompt, [dataUri]);
   } catch (err) {
-    console.error('[public-generate] replicate fail', { ip, ms: Date.now() - t0, err: err instanceof Error ? err.message : err });
-    return fail(req, 502, err instanceof Error ? err.message : 'Generation failed');
+    console.error('[public-generate] generation fail', { ip, ms: Date.now() - t0, err: err instanceof Error ? err.message : err });
+    return fail(req, 502, 'Generation failed');
   }
 
   // ---- fetch result + watermark ----
   let watermarkedB64: string;
   try {
     const res = await fetch(rawUrl);
-    if (!res.ok) throw new Error('failed to fetch render');
+    if (!res.ok) throw new Error('fetch_failed');
     const buf = Buffer.from(await res.arrayBuffer());
     const out = await watermark(buf);
     watermarkedB64 = `data:image/jpeg;base64,${out.toString('base64')}`;
   } catch (err) {
     console.error('[public-generate] watermark fail', { ip, ms: Date.now() - t0, err: err instanceof Error ? err.message : err });
-    return fail(req, 500, err instanceof Error ? err.message : 'Watermark failed');
+    return fail(req, 500, 'Generation failed');
   }
 
   console.log('[public-generate] ok', { ip, ms: Date.now() - t0, kb: Math.round(watermarkedB64.length / 1024) });

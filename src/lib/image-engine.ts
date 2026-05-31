@@ -1,6 +1,6 @@
 import Replicate from 'replicate';
 
-const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
+const client = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
 const GENERATION_TIMEOUT_MS = 120_000;
 
@@ -20,9 +20,9 @@ export async function generateImage(
   if (hasImages) input.image_input = imageInput;
 
   const output = await Promise.race([
-    replicate.run('bytedance/seedream-4.5', { input }),
+    client.run('bytedance/seedream-4.5', { input }),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('generation timeout')), GENERATION_TIMEOUT_MS)
+      setTimeout(() => reject(new Error('image_engine_timeout')), GENERATION_TIMEOUT_MS)
     ),
   ]);
 
@@ -32,5 +32,5 @@ export async function generateImage(
     const u = (first as { url: () => URL | string }).url();
     return u instanceof URL ? u.href : String(u);
   }
-  throw new Error(`Resposta inesperada da Replicate: ${JSON.stringify(output)}`);
+  throw new Error('image_engine_unexpected_response');
 }
