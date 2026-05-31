@@ -359,9 +359,6 @@ export default function GenPanel({
                   style={{ width: `${Math.max(2, Math.round((videoPoll.progress ?? 0) * 100))}%` }}
                 />
               </div>
-              {videoPoll.liveStatus && (
-                <p className="text-[11px] text-bone-mute font-mono truncate">{videoPoll.liveStatus}</p>
-              )}
               <p className="text-xs text-bone-dim">
                 {lang === 'pt'
                   ? 'Você pode fechar a aba — o vídeo aparece no histórico quando ficar pronto.'
@@ -430,16 +427,6 @@ export default function GenPanel({
                 <>{t('generate', lang)} → {cost} CR</>
               )}
             </button>
-            {videoPoll && videoPoll.liveStatus && (
-              <p className="text-[11px] text-bone-mute mt-2 text-center font-mono truncate">
-                {videoPoll.liveStatus}
-              </p>
-            )}
-            <p className="text-xs text-bone-mute mt-2.5 text-center">
-              {kind === 'video'
-                ? lang === 'pt' ? '~ 2 a 3 min' : lang === 'es' ? '~ 2 a 3 min' : '~ 2 to 3 min'
-                : lang === 'pt' ? '~ 30 a 60s' : lang === 'es' ? '~ 30 a 60s' : '~ 30 to 60s'}
-            </p>
           </div>
         </aside>
 
@@ -491,12 +478,35 @@ export default function GenPanel({
                     ? '⚠ Descarga ahora — el enlace expira en ~48h y no se guarda'
                     : '⚠ Download now — link expires in ~48h and is not saved'}
                 </div>
-                <div className="flex justify-center gap-3">
+                <div className="flex justify-center gap-3 flex-wrap">
                   <a href={result.outputUrl} download className="btn-primary text-xs">↓ {t('download', lang)}</a>
                   {!isVid && (
-                    <button type="button" onClick={() => { setKind('edit'); setReusedUrl(result.outputUrl); setResult(null); }} className="btn-ghost text-xs">
-                      ↻ {t('reuse', lang)}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setKind('edit');
+                          setReusedUrl(result.outputUrl);
+                          setEditPrompt('');
+                          setResult(null);
+                        }}
+                        className="btn-ghost text-xs"
+                      >
+                        ✏️ {lang === 'pt' ? 'Editar imagem' : lang === 'es' ? 'Editar imagen' : 'Edit image'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setKind('video');
+                          setReusedUrl(result.outputUrl);
+                          setEditPrompt('');
+                          setResult(null);
+                        }}
+                        className="btn-ghost text-xs"
+                      >
+                        🎬 {lang === 'pt' ? 'Gerar vídeo' : lang === 'es' ? 'Generar video' : 'Generate video'}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
