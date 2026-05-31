@@ -6,6 +6,7 @@ import { generateAction, type GenResult } from '@/lib/actions/generate';
 import Lightbox from './Lightbox';
 import WatermarkedResult from './WatermarkedResult';
 import { t, type Lang } from '@/lib/i18n';
+import { CREDITS_PER_IMAGE, CREDITS_PER_VIDEO } from '@/lib/prompts';
 
 const ANON_KEY = 'goz_free_used';
 
@@ -114,7 +115,7 @@ export default function GenPanel({
   }, [videoPoll, result, router]);
 
   const expectedFiles = kind === 'faceswap' ? 2 : 1;
-  const cost = kind === 'video' ? 25 : 5;
+  const cost = kind === 'video' ? CREDITS_PER_VIDEO : CREDITS_PER_IMAGE;
   const showUpload = !((kind === 'edit' || kind === 'video') && reusedUrl);
   const blockedAnon = isAnon && (freeUsed || kind === 'video');
   const insufficient = !isAnon && credits < cost;
