@@ -75,9 +75,27 @@ export async function POST(req: NextRequest) {
   }
 
   const service = createServiceClient();
-  const { userId, pkgId } = extractTracking(payload);
+  const tracking = extractTracking(payload);
+  const pkgId = tracking.pkgId;
+  let userId = tracking.userId;
   const pkg = pkgId ? findPackage(pkgId) : null;
   const credits = pkg?.credits ?? 0;
+
+  if (!userId) {
+    const email = payload.customer?.email?.trim().toLowerCase();
+    if (email) {
+      const { data: matched } = await service
+        .schema('auth')
+        .from('users')
+        .select('id')
+        .ilike('email', email)
+        .maybeSingle();
+      if (matched?.id) {
+        userId = matched.id as string;
+        console.log(`[perfectpay] match por email=${email} → user=${userId}`);
+      }
+    }
+  }
 
   const { data: existing } = await service
     .from('processed_orders')

@@ -11,8 +11,8 @@ import {
 } from '@/lib/packages';
 import { checkoutUrlFor } from '@/lib/perfectpay-offers';
 
-function payUrl(pkgId: string, userId: string) {
-  return checkoutUrlFor(pkgId, userId) ?? '#';
+function payUrl(pkgId: string, userId: string, email?: string | null) {
+  return checkoutUrlFor(pkgId, userId, email) ?? '#';
 }
 
 export default async function PricingPage({
@@ -117,7 +117,7 @@ export default async function PricingPage({
                 <span className="text-xs text-bone-dim font-semibold">CR</span>
               </div>
               <a
-                href={payUrl(p.id, user.id)}
+                href={payUrl(p.id, user.id, user.email)}
                 target="_blank"
                 rel="noreferrer"
                 className={`mt-auto ${featured ? 'btn-primary' : 'btn-ghost'} w-full text-sm`}

@@ -24,9 +24,23 @@ export function planCodeToPkgId(planCode: string): string | null {
   return null;
 }
 
-export function checkoutUrlFor(pkgId: string, userId: string): string | null {
+export function checkoutUrlFor(
+  pkgId: string,
+  userId: string,
+  email?: string | null,
+): string | null {
   const offer = OFFERS[pkgId];
   if (!offer) return null;
   const tag = `web_${userId}_${pkgId}`;
-  return `${offer.url}?utm_source=web&utm_campaign=hot&utm_content=${tag}&src=${tag}`;
+  const params = new URLSearchParams({
+    utm_source: 'web',
+    utm_campaign: 'hot',
+    utm_content: tag,
+    src: tag,
+  });
+  if (email) {
+    params.set('email', email);
+    params.set('customer_email', email);
+  }
+  return `${offer.url}?${params.toString()}`;
 }
