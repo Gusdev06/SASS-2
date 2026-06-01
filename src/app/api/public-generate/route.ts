@@ -13,9 +13,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import sharp from 'sharp';
 import { generateImage } from '@/lib/image-engine';
 import { UNDRESS_PROMPT } from '@/lib/prompts';
+import { applyWatermark } from '@/lib/watermark';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -60,44 +60,6 @@ function fail(req: NextRequest, status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status, headers: corsHeaders(req.headers.get('origin')) });
 }
 
-async function watermark(buf: Buffer): Promise<Buffer> {
-  const meta = await sharp(buf).metadata();
-  const W = meta.width ?? 1024;
-  const H = meta.height ?? 1024;
-  const diag = Math.sqrt(W * W + H * H);
-  const tileFont = Math.max(28, Math.floor(W / 22));
-  const centerFont = Math.max(72, Math.floor(W / 8));
-  const subFont = Math.max(22, Math.floor(centerFont / 3.2));
-  const cornerFont = Math.max(18, Math.floor(W / 36));
-
-  const tileText = 'goz.ai · FREE PREVIEW · ';
-  const charsPerLine = Math.ceil((diag * 2.5) / (tileFont * 0.55));
-  const tileLine = tileText.repeat(Math.ceil(charsPerLine / tileText.length));
-  const step = Math.floor(tileFont * 3.2);
-  const lines: string[] = [];
-  for (let y = -Math.floor(diag); y < diag; y += step) {
-    lines.push(
-      `<text x="${-Math.floor(diag)}" y="${y}" font-family="sans-serif" font-weight="900" font-size="${tileFont}" fill="rgba(255,255,255,0.34)" stroke="rgba(0,0,0,0.6)" stroke-width="${Math.max(1, tileFont / 18)}">${tileLine}</text>`
-    );
-  }
-
-  const cx = Math.floor(W / 2);
-  const cy = Math.floor(H / 2);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    <g transform="rotate(-30 ${cx} ${cy})">${lines.join('')}</g>
-    <g transform="rotate(-18 ${cx} ${cy})">
-      <text x="${cx}" y="${cy - Math.floor(centerFont * 0.25)}" text-anchor="middle" font-family="sans-serif" font-weight="900" font-size="${centerFont}" fill="rgba(212,255,0,0.92)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(3, centerFont / 14)}" paint-order="stroke">goz.ai</text>
-      <text x="${cx}" y="${cy + Math.floor(centerFont * 0.55)}" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="${subFont}" fill="rgba(244,237,228,0.98)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(1.5, subFont / 10)}" paint-order="stroke" letter-spacing="4">FREE PREVIEW · SIGN UP TO REMOVE</text>
-    </g>
-    <text x="${cornerFont * 1.2}" y="${cornerFont * 2}" font-family="sans-serif" font-weight="700" font-size="${cornerFont}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">goz.ai</text>
-    <text x="${W - cornerFont * 1.2}" y="${H - cornerFont * 1.2}" text-anchor="end" font-family="sans-serif" font-weight="700" font-size="${cornerFont}" fill="rgba(212,255,0,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">FREE PREVIEW</text>
-  </svg>`;
-
-  return sharp(buf)
-    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-    .jpeg({ quality: 88 })
-    .toBuffer();
-}
 
 export async function POST(req: NextRequest) {
   const origin = req.headers.get('origin');
@@ -153,7 +115,7 @@ export async function POST(req: NextRequest) {
     const res = await fetch(rawUrl);
     if (!res.ok) throw new Error('fetch_failed');
     const buf = Buffer.from(await res.arrayBuffer());
-    const out = await watermark(buf);
+    const out = await applyWatermark(buf);
     watermarkedB64 = `data:image/jpeg;base64,${out.toString('base64')}`;
   } catch (err) {
     console.error('[public-generate] watermark fail', { ip, ms: Date.now() - t0, err: err instanceof Error ? err.message : err });
