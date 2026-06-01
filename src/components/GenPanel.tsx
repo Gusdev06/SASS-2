@@ -239,6 +239,31 @@ export default function GenPanel({
       <form onSubmit={handleSubmit} className="p-6 md:p-8 grid lg:grid-cols-[1fr_300px] gap-8">
         {/* input area */}
         <div className="space-y-5">
+          {!showUpload && reusedUrl && (
+            <div>
+              <label className="field-label">
+                {lang === 'pt' ? 'Imagem base' : lang === 'es' ? 'Imagen base' : 'Source image'}
+              </label>
+              <div className="relative rounded-2xl border border-lime/40 bg-lime/5 overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={reusedUrl}
+                  alt=""
+                  className="w-full max-h-[420px] object-contain bg-ink-900"
+                />
+                <div className="absolute top-3 left-3 text-[10px] font-bold tracking-widest bg-ink-900/80 backdrop-blur-sm px-2 py-1 rounded text-lime">
+                  {lang === 'pt' ? 'REAPROVEITADA' : lang === 'es' ? 'REUTILIZADA' : 'REUSED'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReusedUrl(null)}
+                  className="absolute top-3 right-3 text-[10px] font-bold tracking-widest bg-ink-900/80 hover:bg-ink-900 backdrop-blur-sm px-2 py-1 rounded text-bone"
+                >
+                  {t('uploadNew', lang)} ↑
+                </button>
+              </div>
+            </div>
+          )}
           {showUpload && (
             <div>
               <label className="field-label">{uploadHint}</label>
@@ -323,15 +348,6 @@ export default function GenPanel({
                 }
                 className="input resize-none"
               />
-              {reusedUrl && (
-                <p className="text-xs text-bone-dim mt-2 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-lime" />
-                  {t('reusing', lang)} ·{' '}
-                  <button type="button" className="text-lime font-semibold hover:underline" onClick={() => setReusedUrl(null)}>
-                    {t('uploadNew', lang)}
-                  </button>
-                </p>
-              )}
             </div>
           )}
 
@@ -407,7 +423,7 @@ export default function GenPanel({
 
           <div className="space-y-3.5 text-sm">
             <Row label={lang === 'pt' ? 'Motor' : lang === 'es' ? 'Motor' : 'Engine'} value={labelFor(TABS.find((x) => x.id === kind)!, lang)} />
-            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${reusedUrl && kind === 'edit' ? 1 : files.length}/${expectedFiles}`} />
+            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${reusedUrl && (kind === 'edit' || kind === 'video') ? 1 : files.length}/${expectedFiles}`} />
             {isAnon ? (
               <>
                 <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value="FREE" accent />
