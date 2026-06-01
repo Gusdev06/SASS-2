@@ -5,7 +5,7 @@ import { t } from '@/lib/i18n';
 import { getLang } from '@/lib/lang';
 import HistoryGrid from '@/components/HistoryGrid';
 
-const KINDS = ['enhance', 'undress', 'faceswap', 'edit'] as const;
+const KINDS = ['enhance', 'undress', 'faceswap', 'edit', 'video'] as const;
 
 export default async function HistoryPage({
   searchParams,

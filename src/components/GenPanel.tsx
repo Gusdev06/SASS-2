@@ -9,6 +9,17 @@ import { t, type Lang } from '@/lib/i18n';
 import { CREDITS_PER_IMAGE, CREDITS_PER_VIDEO } from '@/lib/prompts';
 
 const ANON_KEY = 'goz_free_used';
+const VIDEO_POLL_KEY = 'goz_video_poll';
+const VIDEO_POLL_TTL_MS = 30 * 60 * 1000;
+
+type VideoPoll = {
+  runId: string;
+  remaining: number;
+  status: string;
+  progress: number;
+  liveStatus: string | null;
+  startedAt: number;
+};
 
 type Kind = 'undress' | 'faceswap' | 'edit' | 'video';
 type SoonKind = 'motion' | 'blowjob' | 'doggy' | 'veo';
@@ -46,13 +57,7 @@ export default function GenPanel({
   const [open, setOpen] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [freeUsed, setFreeUsed] = useState(false);
-  const [videoPoll, setVideoPoll] = useState<{
-    runId: string;
-    remaining: number;
-    status: string;
-    progress: number;
-    liveStatus: string | null;
-  } | null>(null);
+  const [videoPoll, setVideoPoll] = useState<VideoPoll | null>(null);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -61,6 +66,32 @@ export default function GenPanel({
       setFreeUsed(window.localStorage.getItem(ANON_KEY) === '1');
     }
   }, [isAnon]);
+
+  useEffect(() => {
+    if (isAnon || typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(VIDEO_POLL_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as VideoPoll;
+      if (!saved?.runId || Date.now() - (saved.startedAt ?? 0) > VIDEO_POLL_TTL_MS) {
+        window.localStorage.removeItem(VIDEO_POLL_KEY);
+        return;
+      }
+      setKind('video');
+      setVideoPoll(saved);
+    } catch {
+      window.localStorage.removeItem(VIDEO_POLL_KEY);
+    }
+  }, [isAnon]);
+
+  useEffect(() => {
+    if (isAnon || typeof window === 'undefined') return;
+    if (videoPoll) {
+      window.localStorage.setItem(VIDEO_POLL_KEY, JSON.stringify(videoPoll));
+    } else {
+      window.localStorage.removeItem(VIDEO_POLL_KEY);
+    }
+  }, [videoPoll, isAnon]);
 
   useEffect(() => {
     if (!videoPoll || result?.ok) return;
@@ -154,6 +185,7 @@ export default function GenPanel({
           status: 'queued',
           progress: 0,
           liveStatus: null,
+          startedAt: Date.now(),
         });
         setFiles([]);
         router.refresh();
