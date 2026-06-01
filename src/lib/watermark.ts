@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
-import opentype from 'opentype.js';
+import * as opentype from 'opentype.js';
 
 const FONT_REL = 'node_modules/geist/dist/fonts/geist-sans/Geist-Black.ttf';
 
@@ -57,10 +57,10 @@ export async function applyWatermark(buf: Buffer): Promise<Buffer> {
   const H = meta.height ?? 1024;
   const diag = Math.sqrt(W * W + H * H);
 
-  const tileFont = Math.max(28, Math.floor(W / 22));
-  const centerFont = Math.max(72, Math.floor(W / 8));
-  const subFont = Math.max(22, Math.floor(centerFont / 3.2));
-  const cornerFont = Math.max(18, Math.floor(W / 36));
+  const tileFont = Math.max(44, Math.floor(W / 12));
+  const centerFont = Math.max(120, Math.floor(W / 4.5));
+  const subFont = Math.max(34, Math.floor(centerFont / 3.6));
+  const cornerFont = Math.max(26, Math.floor(W / 24));
 
   const font = loadFont();
 
@@ -69,7 +69,7 @@ export async function applyWatermark(buf: Buffer): Promise<Buffer> {
   const tileUnitWidth = font.getAdvanceWidth(tileText, tileFont);
   const lineRepeats = Math.ceil((diag * 2.5) / Math.max(1, tileUnitWidth));
   const tileLine = tileText.repeat(lineRepeats);
-  const step = Math.floor(tileFont * 3.2);
+  const step = Math.floor(tileFont * 2.0);
 
   const tilePaths: string[] = [];
   for (let y = -Math.floor(diag); y < diag; y += step) {
@@ -94,14 +94,14 @@ export async function applyWatermark(buf: Buffer): Promise<Buffer> {
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
     <g transform="rotate(-30 ${cx} ${cy})">
-      <path d="${tilePathD}" fill="rgba(255,255,255,0.34)" stroke="rgba(0,0,0,0.6)" stroke-width="${tileStroke}" paint-order="stroke"/>
+      <path d="${tilePathD}" fill="rgba(255,255,255,0.55)" stroke="rgba(0,0,0,0.75)" stroke-width="${tileStroke}" paint-order="stroke"/>
     </g>
     <g transform="rotate(-18 ${cx} ${cy})">
-      <path d="${heroD}" fill="rgba(212,255,0,0.92)" stroke="rgba(0,0,0,0.92)" stroke-width="${heroStroke}" paint-order="stroke"/>
-      <path d="${subD}" fill="rgba(244,237,228,0.98)" stroke="rgba(0,0,0,0.92)" stroke-width="${subStroke}" paint-order="stroke"/>
+      <path d="${heroD}" fill="rgba(212,255,0,0.98)" stroke="rgba(0,0,0,0.95)" stroke-width="${heroStroke}" paint-order="stroke"/>
+      <path d="${subD}" fill="rgba(244,237,228,1)" stroke="rgba(0,0,0,0.95)" stroke-width="${subStroke}" paint-order="stroke"/>
     </g>
-    <path d="${cornerTL}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke"/>
-    <path d="${cornerBR}" fill="rgba(212,255,0,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke"/>
+    <path d="${cornerTL}" fill="rgba(255,255,255,0.98)" stroke="rgba(0,0,0,0.95)" stroke-width="2" paint-order="stroke"/>
+    <path d="${cornerBR}" fill="rgba(212,255,0,0.98)" stroke="rgba(0,0,0,0.95)" stroke-width="2" paint-order="stroke"/>
   </svg>`;
 
   return sharp(buf)
