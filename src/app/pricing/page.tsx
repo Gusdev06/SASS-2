@@ -33,7 +33,7 @@ export default async function PricingPage({
   const sp = await searchParams;
   const country = (await cookies()).get('country')?.value?.toUpperCase();
   const allowBRL = country === 'BR' || (!country && lang === 'pt');
-  const defaultCur: Currency = allowBRL ? 'BRL' : 'USD';
+  const defaultCur: Currency = 'USD';
   const requested: Currency | null =
     sp?.cur === 'BRL' || sp?.cur === 'USD' ? (sp.cur as Currency) : null;
   const currency: Currency = !allowBRL ? 'USD' : (requested ?? defaultCur);

@@ -38,9 +38,8 @@ export function packagesFor(currency: Currency): CreditPackage[] {
   return currency === 'BRL' ? PACKAGES_BRL : PACKAGES_USD;
 }
 
-export function currencyForLanguage(lang: string | null | undefined): Currency {
-  if (!lang) return 'USD';
-  return /^pt(-|$)/i.test(lang) ? 'BRL' : 'USD';
+export function currencyForLanguage(_lang: string | null | undefined): Currency {
+  return 'USD';
 }
 
 export function formatPrice(value: number, currency: Currency): string {
