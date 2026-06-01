@@ -35,7 +35,7 @@ async function watermarkRemote(url: string): Promise<string> {
   const lines: string[] = [];
   for (let y = -Math.floor(diag); y < diag; y += step) {
     lines.push(
-      `<text x="${-Math.floor(diag)}" y="${y}" font-family="Georgia, serif" font-weight="900" font-size="${tileFont}" fill="rgba(255,255,255,0.32)" stroke="rgba(0,0,0,0.55)" stroke-width="${Math.max(1, tileFont / 18)}">${tileLine}</text>`
+      `<text x="${-Math.floor(diag)}" y="${y}" font-family="serif" font-weight="900" font-size="${tileFont}" fill="rgba(255,255,255,0.32)" stroke="rgba(0,0,0,0.55)" stroke-width="${Math.max(1, tileFont / 18)}">${tileLine}</text>`
     );
   }
 
@@ -44,11 +44,11 @@ async function watermarkRemote(url: string): Promise<string> {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
     <g transform="rotate(-30 ${cx} ${cy})">${lines.join('')}</g>
     <g transform="rotate(-18 ${cx} ${cy})">
-      <text x="${cx}" y="${cy - Math.floor(centerFont * 0.25)}" text-anchor="middle" font-family="Georgia, serif" font-weight="900" font-size="${centerFont}" fill="rgba(255,61,46,0.92)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(3, centerFont / 14)}" paint-order="stroke">goz.ai</text>
-      <text x="${cx}" y="${cy + Math.floor(centerFont * 0.55)}" text-anchor="middle" font-family="Menlo, monospace" font-weight="700" font-size="${subFont}" fill="rgba(244,237,228,0.98)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(1.5, subFont / 10)}" paint-order="stroke" letter-spacing="4">FREE PREVIEW · NOT FOR USE</text>
+      <text x="${cx}" y="${cy - Math.floor(centerFont * 0.25)}" text-anchor="middle" font-family="serif" font-weight="900" font-size="${centerFont}" fill="rgba(255,61,46,0.92)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(3, centerFont / 14)}" paint-order="stroke">goz.ai</text>
+      <text x="${cx}" y="${cy + Math.floor(centerFont * 0.55)}" text-anchor="middle" font-family="monospace" font-weight="700" font-size="${subFont}" fill="rgba(244,237,228,0.98)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(1.5, subFont / 10)}" paint-order="stroke" letter-spacing="4">FREE PREVIEW · NOT FOR USE</text>
     </g>
-    <text x="${cornerFont * 1.2}" y="${cornerFont * 2}" font-family="Menlo, monospace" font-weight="700" font-size="${cornerFont}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">goz.ai / sign up to unlock</text>
-    <text x="${W - cornerFont * 1.2}" y="${H - cornerFont * 1.2}" text-anchor="end" font-family="Menlo, monospace" font-weight="700" font-size="${cornerFont}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">FREE PREVIEW</text>
+    <text x="${cornerFont * 1.2}" y="${cornerFont * 2}" font-family="monospace" font-weight="700" font-size="${cornerFont}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">goz.ai / sign up to unlock</text>
+    <text x="${W - cornerFont * 1.2}" y="${H - cornerFont * 1.2}" text-anchor="end" font-family="monospace" font-weight="700" font-size="${cornerFont}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">FREE PREVIEW</text>
   </svg>`;
 
   const out = await sharp(buf)
