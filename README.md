@@ -51,7 +51,7 @@ Versão web do bot de geração de imagens (antes em `NH-203/`). Mesmas funciona
 
 ## Esquema de créditos
 
-- 1 imagem = **10 créditos**. Vídeo = **35 créditos**.
+- 1 imagem = **5 créditos**.
 - Débito atômico via RPC `debit_credits` (não permite saldo negativo).
 - Falha de geração → `add_credits` reembolsa o usuário.
 

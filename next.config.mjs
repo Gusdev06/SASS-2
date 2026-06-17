@@ -1,10 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   serverExternalPackages: ['better-sqlite3'],
-  outputFileTracingIncludes: {
-    '/api/public-generate': ['./node_modules/geist/dist/fonts/geist-sans/Geist-Black.ttf'],
-    '/api/generate/**/*': ['./node_modules/geist/dist/fonts/geist-sans/Geist-Black.ttf'],
-    '/dashboard/**/*': ['./node_modules/geist/dist/fonts/geist-sans/Geist-Black.ttf'],
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'replicate.delivery' },
+      { protocol: 'https', hostname: '*.replicate.delivery' },
+      // Supabase Storage (bucket `files`) — permanent home for all generations.
+      { protocol: 'https', hostname: '*.supabase.co', pathname: '/storage/v1/object/public/**' },
+    ],
   },
 };
 

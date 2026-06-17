@@ -11,8 +11,8 @@ import {
 } from '@/lib/packages';
 import { checkoutUrlFor } from '@/lib/perfectpay-offers';
 
-function payUrl(pkgId: string, userId: string, email?: string | null) {
-  return checkoutUrlFor(pkgId, userId, email) ?? '#';
+function payUrl(pkgId: string, userId: string) {
+  return checkoutUrlFor(pkgId, userId) ?? '#';
 }
 
 export default async function PricingPage({
@@ -33,7 +33,7 @@ export default async function PricingPage({
   const sp = await searchParams;
   const country = (await cookies()).get('country')?.value?.toUpperCase();
   const allowBRL = country === 'BR' || (!country && lang === 'pt');
-  const defaultCur: Currency = 'USD';
+  const defaultCur: Currency = allowBRL ? 'BRL' : 'USD';
   const requested: Currency | null =
     sp?.cur === 'BRL' || sp?.cur === 'USD' ? (sp.cur as Currency) : null;
   const currency: Currency = !allowBRL ? 'USD' : (requested ?? defaultCur);
@@ -117,7 +117,7 @@ export default async function PricingPage({
                 <span className="text-xs text-bone-dim font-semibold">CR</span>
               </div>
               <a
-                href={payUrl(p.id, user.id, user.email)}
+                href={payUrl(p.id, user.id)}
                 target="_blank"
                 rel="noreferrer"
                 className={`mt-auto ${featured ? 'btn-primary' : 'btn-ghost'} w-full text-sm`}

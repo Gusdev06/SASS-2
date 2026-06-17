@@ -1,12 +1,20 @@
 'use server';
 
+import sharp from 'sharp';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { generateImage } from '@/lib/image-engine';
+import { generateImage } from '@/lib/replicate';
+import {
+  generateImage as generateNanoBanana,
+  NANO_BANANA_MODELS,
+  ASPECT_RATIOS,
+  IMAGE_SIZES,
+  type NanoBananaOptions,
+} from '@/lib/vertex-image';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
-import { uploadToSupabase } from '@/lib/storage';
-import { applyWatermark } from '@/lib/watermark';
+import { persistGeneration } from '@/lib/storage';
 import {
   CREDITS_PER_IMAGE,
   CREDITS_PER_VIDEO,
@@ -19,18 +27,57 @@ async function watermarkRemote(url: string): Promise<string> {
   const res = await fetch(url);
   if (!res.ok) throw new Error('failed to fetch render');
   const buf = Buffer.from(await res.arrayBuffer());
-  const out = await applyWatermark(buf);
+  const meta = await sharp(buf).metadata();
+  const W = meta.width ?? 1024;
+  const H = meta.height ?? 1024;
+  const diag = Math.sqrt(W * W + H * H);
+  const tileFont = Math.max(28, Math.floor(W / 22));
+  const centerFont = Math.max(72, Math.floor(W / 8));
+  const subFont = Math.max(22, Math.floor(centerFont / 3.2));
+  const cornerFont = Math.max(18, Math.floor(W / 36));
+
+  const tileText = 'goz.ai · FREE PREVIEW · ';
+  const charsPerLine = Math.ceil((diag * 2.5) / (tileFont * 0.55));
+  const tileLine = tileText.repeat(Math.ceil(charsPerLine / tileText.length));
+  const step = Math.floor(tileFont * 3.2);
+  const lines: string[] = [];
+  for (let y = -Math.floor(diag); y < diag; y += step) {
+    lines.push(
+      `<text x="${-Math.floor(diag)}" y="${y}" font-family="Georgia, serif" font-weight="900" font-size="${tileFont}" fill="rgba(255,255,255,0.32)" stroke="rgba(0,0,0,0.55)" stroke-width="${Math.max(1, tileFont / 18)}">${tileLine}</text>`
+    );
+  }
+
+  const cx = Math.floor(W / 2);
+  const cy = Math.floor(H / 2);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <g transform="rotate(-30 ${cx} ${cy})">${lines.join('')}</g>
+    <g transform="rotate(-18 ${cx} ${cy})">
+      <text x="${cx}" y="${cy - Math.floor(centerFont * 0.25)}" text-anchor="middle" font-family="Georgia, serif" font-weight="900" font-size="${centerFont}" fill="rgba(255,61,46,0.92)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(3, centerFont / 14)}" paint-order="stroke">goz.ai</text>
+      <text x="${cx}" y="${cy + Math.floor(centerFont * 0.55)}" text-anchor="middle" font-family="Menlo, monospace" font-weight="700" font-size="${subFont}" fill="rgba(244,237,228,0.98)" stroke="rgba(0,0,0,0.92)" stroke-width="${Math.max(1.5, subFont / 10)}" paint-order="stroke" letter-spacing="4">FREE PREVIEW · NOT FOR USE</text>
+    </g>
+    <text x="${cornerFont * 1.2}" y="${cornerFont * 2}" font-family="Menlo, monospace" font-weight="700" font-size="${cornerFont}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">goz.ai / sign up to unlock</text>
+    <text x="${W - cornerFont * 1.2}" y="${H - cornerFont * 1.2}" text-anchor="end" font-family="Menlo, monospace" font-weight="700" font-size="${cornerFont}" fill="rgba(255,255,255,0.95)" stroke="rgba(0,0,0,0.9)" stroke-width="1" paint-order="stroke" letter-spacing="3">FREE PREVIEW</text>
+  </svg>`;
+
+  const out = await sharp(buf)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .jpeg({ quality: 88 })
+    .toBuffer();
   return `data:image/jpeg;base64,${out.toString('base64')}`;
 }
 
-const MAX_PROMPT = 2000;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const ANON_COOKIE = 'anon_used';
-type Kind = 'undress' | 'faceswap' | 'enhance' | 'edit' | 'video';
+type Kind = 'undress' | 'faceswap' | 'enhance' | 'edit' | 'video' | 'create';
+
+const NANO_BANANA_VALUES = new Set<string>(Object.values(NANO_BANANA_MODELS));
+const ASPECT_VALUES = new Set<string>(ASPECT_RATIOS);
+const SIZE_VALUES = new Set<string>(IMAGE_SIZES);
 
 export type GenResult =
   | { ok: true; outputUrl: string; remaining: number; watermarked?: boolean }
   | { ok: true; isVideo: true; runId: string; remaining: number }
+  | { ok: true; isAsync: true; genId: string; remaining: number }
   | { ok: false; error: string; refunded?: boolean };
 
 function pickPrompt(kind: Kind, customPrompt: string | null): string {
@@ -38,6 +85,20 @@ function pickPrompt(kind: Kind, customPrompt: string | null): string {
   if (kind === 'faceswap') return FACESWAP_PROMPT;
   if (kind === 'enhance') return ENHANCE_PROMPT;
   return (customPrompt ?? '').trim();
+}
+
+/**
+ * Picks the image engine. The SFW `create` tab uses the Nano Banana models
+ * (Vertex AI / Gemini); every other image flow stays on Replicate (Seedream).
+ */
+function runImageEngine(
+  kind: Kind,
+  prompt: string,
+  inputUrls: string[],
+  opts?: NanoBananaOptions
+): Promise<string> {
+  if (kind === 'create') return generateNanoBanana(prompt, inputUrls, opts);
+  return generateImage(prompt, inputUrls);
 }
 
 async function filesToDataUris(files: File[]): Promise<string[]> {
@@ -60,7 +121,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const user = userData.user;
 
   const kind = String(formData.get('kind') ?? '') as Kind;
-  if (!['undress', 'faceswap', 'enhance', 'edit', 'video'].includes(kind)) {
+  if (!['undress', 'faceswap', 'enhance', 'edit', 'video', 'create'].includes(kind)) {
     return { ok: false, error: 'Tipo inválido.' };
   }
 
@@ -68,8 +129,21 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const reusedUrl = formData.get('reused_url') ? String(formData.get('reused_url')) : null;
   const prompt = pickPrompt(kind, customPrompt);
 
-  if (!prompt || prompt.length < 2 || prompt.length > MAX_PROMPT) {
-    return { ok: false, error: 'Prompt inválido.' };
+  // Model / quality / aspect-ratio — only honored for the SFW `create` tab.
+  const rawModel = formData.get('model') ? String(formData.get('model')) : null;
+  const rawAspect = formData.get('aspect_ratio') ? String(formData.get('aspect_ratio')) : null;
+  const rawSize = formData.get('image_size') ? String(formData.get('image_size')) : null;
+  const createOpts: NanoBananaOptions | undefined =
+    kind === 'create'
+      ? {
+          model: rawModel && NANO_BANANA_VALUES.has(rawModel) ? rawModel : undefined,
+          aspectRatio: rawAspect && ASPECT_VALUES.has(rawAspect) ? rawAspect : undefined,
+          imageSize: rawSize && SIZE_VALUES.has(rawSize) ? rawSize : undefined,
+        }
+      : undefined;
+
+  if (!prompt) {
+    return { ok: false, error: 'Digite um prompt.' };
   }
 
   let inputUrls: string[] = [];
@@ -79,7 +153,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
     if (kind === 'video') videoInputUrl = reusedUrl;
   } else {
     const files = formData.getAll('images').filter((f): f is File => f instanceof File && f.size > 0);
-    const expected = kind === 'faceswap' ? 2 : 1;
+    // `create` accepts an optional reference image; others require their inputs.
+    const expected = kind === 'create' ? 0 : kind === 'faceswap' ? 2 : 1;
     if (files.length < expected) {
       return { ok: false, error: `Envie ${expected} foto(s).` };
     }
@@ -91,6 +166,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
         }
         const buf = new Uint8Array(await f.arrayBuffer());
         videoInputUrl = await uploadAsset(buf, f.type || 'image/jpeg', f.name || 'input.jpg');
+      } else if (kind === 'create') {
+        inputUrls = files.length ? await filesToDataUris(files.slice(0, 3)) : [];
       } else {
         inputUrls = await filesToDataUris(files.slice(0, expected));
       }
@@ -108,7 +185,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       return { ok: false, error: 'Free preview já utilizado. Cadastre-se para continuar.' };
     }
     try {
-      const rawUrl = await generateImage(prompt, inputUrls);
+      const rawUrl = await runImageEngine(kind, prompt, inputUrls, createOpts);
       const outputUrl = await watermarkRemote(rawUrl);
       jar.set(ANON_COOKIE, '1', {
         path: '/',
@@ -118,8 +195,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       });
       return { ok: true, outputUrl, remaining: 0, watermarked: true };
     } catch (err) {
-      console.error('[generate] anon fail', err);
-      return { ok: false, error: 'Falha na geração.' };
+      return { ok: false, error: err instanceof Error ? err.message : 'Falha na geração.' };
     }
   }
 
@@ -152,6 +228,31 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   }
   const genId = genRow.id as string;
 
+  // `create` (Nano Banana) runs in the background so the client can poll
+  // /api/image-status/:genId instead of holding a long synchronous request.
+  if (kind === 'create') {
+    after(async () => {
+      const bg = createServiceClient();
+      try {
+        const rawUrl = await runImageEngine('create', prompt, inputUrls, createOpts);
+        const outputUrl = await persistGeneration(rawUrl, `${user.id}/create`);
+        await bg
+          .from('generations')
+          .update({ output_url: outputUrl, status: 'succeeded' })
+          .eq('id', genId);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : 'Falha na geração.';
+        await bg.rpc('refund_generation', { p_gen_id: genId, p_reason: reason });
+      }
+    });
+    const { data: profile } = await service
+      .from('profiles')
+      .select('credits')
+      .eq('user_id', user.id)
+      .single();
+    return { ok: true, isAsync: true, genId, remaining: profile?.credits ?? 0 };
+  }
+
   try {
     if (kind === 'video') {
       if (!videoInputUrl) throw new Error('Imagem de entrada ausente.');
@@ -168,8 +269,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       return { ok: true, isVideo: true, runId, remaining: profile?.credits ?? 0 };
     }
 
-    const rawUrl = await generateImage(prompt, inputUrls);
-    const outputUrl = await uploadToSupabase(rawUrl, `generations/${user.id}/${genId}`);
+    const rawUrl = await runImageEngine(kind, prompt, inputUrls, createOpts);
+    const outputUrl = await persistGeneration(rawUrl, `${user.id}/${kind}`);
     await service
       .from('generations')
       .update({ output_url: outputUrl, status: 'succeeded' })
@@ -182,8 +283,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
     revalidatePath('/dashboard');
     return { ok: true, outputUrl, remaining: profile?.credits ?? 0 };
   } catch (err) {
-    console.error('[generate] auth fail', err);
-    const reason = 'Falha na geração.';
+    const reason = err instanceof Error ? err.message : 'Falha na geração.';
     const { data: refunded } = await service.rpc('refund_generation', {
       p_gen_id: genId,
       p_reason: reason,

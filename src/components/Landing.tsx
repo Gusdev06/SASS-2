@@ -4,21 +4,18 @@ import LangSwitch from './LangSwitch';
 import DemoPanel from './DemoPanel';
 import Logo from './Logo';
 
-const LANG_PATH: Record<Lang, string> = { en: 'en', es: 'es', pt: 'pt-br' };
+const REGISTER_URL = '/signup';
+const LOGIN_URL = '/login';
 
 export default function Landing({ lang }: { lang: Lang }) {
   const tr = (k: Parameters<typeof t>[0]) => t(k, lang);
-  const base = `/${LANG_PATH[lang]}`;
-  const HOME_URL = base;
-  const LOGIN_URL = `${base}/login`;
-  const REGISTER_URL = `${base}/signup`;
 
   return (
     <div className="bg-ink-900 text-bone min-h-screen">
       {/* ============ NAV ============ */}
       <div className="fixed top-4 left-2 right-2 md:top-5 md:left-6 md:right-6 z-50">
         <nav className="max-w-[980px] mx-auto flex items-center justify-between px-4 md:px-6 py-3 bg-ink-800/60 backdrop-blur-md border border-white/10 rounded-2xl">
-          <Link href={HOME_URL} className="flex items-center gap-2 font-bold text-base md:text-lg">
+          <Link href="/" className="flex items-center gap-2 font-bold text-base md:text-lg">
             <Logo />
             goz.ai
           </Link>
@@ -106,22 +103,12 @@ export default function Landing({ lang }: { lang: Lang }) {
           </h2>
           <p className="text-center text-bone-dim max-w-[580px] mx-auto mb-12 text-sm">{tr('resultsSub')}</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 max-w-[1000px] mx-auto">
-            {[
-              'https://cdn.geraew.com.br/storage/v1/object/public/ai-generations/generations/cmpq7evd807cgnu0101893z2g/3f43e1d5-1247-4939-a08c-aee7f9c760a9/output_0.mp4',
-              'https://cdn.geraew.com.br/storage/v1/object/public/ai-generations/generations/cmos0rmig01s7lo01h6h9y1tu/b7ad2253-41f9-4d6e-a68d-86f5b537a2d0/output_0.png',
-              'https://cdn.geraew.com.br/storage/v1/object/public/ai-generations/generations/cmorxpua201d5lo01ndioz83e/fb55efd2-13fe-4ae9-bcc0-959e182340f8/output_0.png',
-              'https://cdn.geraew.com.br/storage/v1/object/public/ai-generations/generations/cmpq7w4zi07hrnu01ln2hogbh/95f75933-068b-4457-ab94-61d9bf5a996c/output_0.mp4',
-            ].map((src) => (
-              <figure key={src} className="aspect-[9/16] rounded-2xl overflow-hidden border border-white/10 bg-ink-700 group">
-                {src.endsWith('.mp4') ? (
-                  <video src={src} autoPlay muted loop playsInline preload="metadata"
-                    className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-700" />
-                ) : (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={src} alt="AI Influencer"
-                    className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-700"
-                    loading="lazy" />
-                )}
+            {['influencer1','influencer-eye','influencer5','influencer-new4'].map((name) => (
+              <figure key={name} className="aspect-[9/16] rounded-2xl overflow-hidden border border-white/10 bg-ink-700 group">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/zayra/images/${name}.webp`} alt="AI Influencer"
+                  className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-700"
+                  loading="lazy" />
               </figure>
             ))}
           </div>

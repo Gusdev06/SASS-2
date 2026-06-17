@@ -8,9 +8,11 @@ export type CreditPackage = {
   bonusImages?: number;
 };
 
-export const CREDITS_PER_IMAGE = 10;
+export const CREDITS_PER_IMAGE = 5;
 
 export const PACKAGES_BRL: CreditPackage[] = [
+  { id: 'p10', credits: 30, price: 10, currency: 'BRL' },
+  { id: 'p25', credits: 75, price: 25, currency: 'BRL' },
   { id: 'p50', credits: 150, price: 50, currency: 'BRL' },
   { id: 'p75', credits: 250, price: 75, currency: 'BRL', bonusImages: 5 },
   { id: 'p100', credits: 350, price: 100, currency: 'BRL', bonusImages: 10 },
@@ -20,6 +22,7 @@ export const PACKAGES_BRL: CreditPackage[] = [
 ];
 
 export const PACKAGES_USD: CreditPackage[] = [
+  { id: 'u5', credits: 75, price: 5, currency: 'USD' },
   { id: 'u10', credits: 150, price: 10, currency: 'USD' },
   { id: 'u15', credits: 250, price: 15, currency: 'USD', bonusImages: 5 },
   { id: 'u20', credits: 350, price: 20, currency: 'USD', bonusImages: 10 },
@@ -38,8 +41,9 @@ export function packagesFor(currency: Currency): CreditPackage[] {
   return currency === 'BRL' ? PACKAGES_BRL : PACKAGES_USD;
 }
 
-export function currencyForLanguage(_lang: string | null | undefined): Currency {
-  return 'USD';
+export function currencyForLanguage(lang: string | null | undefined): Currency {
+  if (!lang) return 'USD';
+  return /^pt(-|$)/i.test(lang) ? 'BRL' : 'USD';
 }
 
 export function formatPrice(value: number, currency: Currency): string {

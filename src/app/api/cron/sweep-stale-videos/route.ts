@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getRun } from '@/lib/comfydeploy';
+import { persistGeneration } from '@/lib/storage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   const { data: rows, error } = await service
     .from('generations')
-    .select('id, input_urls, created_at')
+    .select('id, user_id, input_urls, created_at')
     .eq('kind', 'video')
     .eq('status', 'pending')
     .lt('created_at', cutoff)
@@ -61,9 +62,10 @@ export async function GET(req: NextRequest) {
       if (run.status === 'success') {
         const url = run.outputs?.[0]?.data?.files?.[0]?.url;
         if (url) {
+          const storedUrl = await persistGeneration(url, `${row.user_id}/video`);
           await service
             .from('generations')
-            .update({ output_url: url, status: 'succeeded' })
+            .update({ output_url: storedUrl, status: 'succeeded' })
             .eq('id', row.id);
           results.succeeded += 1;
         } else {

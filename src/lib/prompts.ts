@@ -1,5 +1,5 @@
-export const CREDITS_PER_IMAGE = 10;
-export const CREDITS_PER_VIDEO = 35;
+export const CREDITS_PER_IMAGE = 5;
+export const CREDITS_PER_VIDEO = 25;
 
 export const ENHANCE_PROMPT =
   'Deixa essa mulher completamente pelada, mantenha o rosto original e o corpo, os seios e a bunda devem ficar bem avantajados e sedutores, mantenha a iluminação e o fundo original.';

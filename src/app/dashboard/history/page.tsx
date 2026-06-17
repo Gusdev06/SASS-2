@@ -5,7 +5,7 @@ import { t } from '@/lib/i18n';
 import { getLang } from '@/lib/lang';
 import HistoryGrid from '@/components/HistoryGrid';
 
-const KINDS = ['enhance', 'undress', 'faceswap', 'edit', 'video'] as const;
+const KINDS = ['enhance', 'undress', 'faceswap', 'edit'] as const;
 
 export default async function HistoryPage({
   searchParams,
@@ -48,21 +48,21 @@ export default async function HistoryPage({
         <p className="text-sm text-bone-dim mt-3">
           {(items?.length ?? 0)} {lang === 'pt' ? 'entradas' : lang === 'es' ? 'entradas' : 'entries'}
         </p>
-        <div className="mt-5 border border-amber-500/40 bg-amber-500/[0.06] rounded-xl px-4 py-3 text-xs text-amber-200/90 flex items-start gap-2">
-          <span aria-hidden className="text-amber-400 font-bold leading-none mt-px">⚠</span>
+        <div className="mt-5 border border-lime/30 bg-lime/[0.06] rounded-xl px-4 py-3 text-xs text-bone-dim flex items-start gap-2">
+          <span aria-hidden className="text-lime font-bold leading-none mt-px">✓</span>
           <div>
-            <strong className="text-amber-300 font-bold">
+            <strong className="text-lime font-bold">
               {lang === 'pt'
-                ? 'Não armazenamos suas gerações.'
+                ? 'Suas gerações ficam salvas.'
                 : lang === 'es'
-                ? 'No almacenamos tus generaciones.'
-                : "We don't store your generations."}
+                ? 'Tus generaciones quedan guardadas.'
+                : 'Your generations are saved.'}
             </strong>{' '}
             {lang === 'pt'
-              ? 'Os links abaixo expiram em até 48h após a criação. Baixe o que quiser manter — depois não dá pra recuperar.'
+              ? 'Tudo fica disponível aqui no seu histórico — baixe quando quiser.'
               : lang === 'es'
-              ? 'Los enlaces de abajo expiran en hasta 48h tras la creación. Descarga lo que quieras conservar — luego no se puede recuperar.'
-              : 'The links below expire within 48h of creation. Download whatever you want to keep — after that it cannot be recovered.'}
+              ? 'Todo queda disponible aquí en tu historial — descarga cuando quieras.'
+              : 'Everything stays here in your history — download whenever you want.'}
           </div>
         </div>
       </header>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { getRun } from '@/lib/comfydeploy';
+import { persistGeneration } from '@/lib/storage';
 
 export const runtime = 'nodejs';
 
@@ -56,12 +57,13 @@ export async function GET(
   if (run.status === 'success') {
     const url = run.outputs?.[0]?.data?.files?.[0]?.url;
     if (url) {
+      const storedUrl = await persistGeneration(url, `${user.id}/video`);
       await service
         .from('generations')
-        .update({ output_url: url, status: 'succeeded' })
+        .update({ output_url: storedUrl, status: 'succeeded' })
         .eq('id', gen.id);
       revalidatePath('/dashboard');
-      return NextResponse.json({ status: 'success', progress: 1, outputUrl: url });
+      return NextResponse.json({ status: 'success', progress: 1, outputUrl: storedUrl });
     }
     return NextResponse.json({ status: 'success', progress: 1, outputUrl: null });
   }

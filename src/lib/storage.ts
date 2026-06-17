@@ -32,3 +32,17 @@ export async function uploadToSupabase(
   if (!data?.publicUrl) throw new Error('storage_upload_no_url');
   return data.publicUrl;
 }
+
+/**
+ * Persists a generation output (remote URL or data: URI) to the bucket and
+ * returns the permanent public URL. If the upload fails for any reason, falls
+ * back to the original source so a successful generation is never lost.
+ */
+export async function persistGeneration(srcUrl: string, pathHint = 'image'): Promise<string> {
+  try {
+    return await uploadToSupabase(srcUrl, pathHint);
+  } catch (err) {
+    console.error('[storage] persist failed, falling back to source url', err instanceof Error ? err.message : err);
+    return srcUrl;
+  }
+}

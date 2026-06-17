@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
 import { getLang } from '@/lib/lang';
-import { reconcileUserPendingVideos } from '@/lib/reconcile';
 import AppShell from '@/components/AppShell';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -11,7 +10,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
   let credits = 0;
   let languageCode: string | null = null;
   if (user) {
-    await reconcileUserPendingVideos(user.id);
     const { data: profile } = await supabase
       .from('profiles')
       .select('credits, language_code')

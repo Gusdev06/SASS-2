@@ -6,34 +6,43 @@ import { generateAction, type GenResult } from '@/lib/actions/generate';
 import Lightbox from './Lightbox';
 import WatermarkedResult from './WatermarkedResult';
 import { t, type Lang } from '@/lib/i18n';
-import { CREDITS_PER_IMAGE, CREDITS_PER_VIDEO } from '@/lib/prompts';
 
 const ANON_KEY = 'goz_free_used';
-const VIDEO_POLL_KEY = 'goz_video_poll';
-const VIDEO_POLL_TTL_MS = 30 * 60 * 1000;
 
-type VideoPoll = {
-  runId: string;
-  remaining: number;
-  status: string;
-  progress: number;
-  liveStatus: string | null;
-  startedAt: number;
-};
+type Kind = 'enhance' | 'undress' | 'faceswap' | 'edit' | 'video' | 'create';
 
-type Kind = 'undress' | 'faceswap' | 'edit' | 'video';
-type SoonKind = 'motion' | 'blowjob' | 'doggy' | 'veo';
-type TabId = Kind | SoonKind;
-
-const TABS: { id: TabId; en: string; pt: string; es: string; icon: string; soon?: boolean }[] = [
-  { id: 'undress', en: 'Undress', pt: 'Despir', es: 'Desnudar', icon: '🔥' },
-  { id: 'faceswap', en: 'Face Swap', pt: 'Troca de Rosto', es: 'Cambio de Rostro', icon: '🎭' },
+const TABS: { id: Kind; en: string; pt: string; es: string; icon: string }[] = [
+  { id: 'create', en: 'Create', pt: 'Criar', es: 'Crear', icon: '🍌' },
+  { id: 'enhance', en: 'Enhance', pt: 'Enhance', es: 'Mejorar', icon: '✨' },
+  { id: 'undress', en: 'Undress', pt: 'Undress', es: 'Undress', icon: '🔥' },
+  { id: 'faceswap', en: 'Face Swap', pt: 'Face Swap', es: 'Face Swap', icon: '🎭' },
   { id: 'edit', en: 'Edit', pt: 'Editar', es: 'Editar', icon: '✏️' },
-  { id: 'video', en: 'Video (NSFW)', pt: 'Vídeo (NSFW)', es: 'Video (NSFW)', icon: '🎬' },
-  { id: 'veo', en: 'Veo 3.1', pt: 'Veo 3.1', es: 'Veo 3.1', icon: '🎥', soon: true },
-  { id: 'motion', en: 'Motion Control', pt: 'Controle de Movimento', es: 'Control de Movimiento', icon: '🕹️', soon: true },
-  { id: 'blowjob', en: 'Blowjob', pt: 'Boquete', es: 'Mamada', icon: '💋', soon: true },
-  { id: 'doggy', en: 'Doggystyle', pt: 'De Quatro', es: 'Estilo Perrito', icon: '🐶', soon: true },
+  { id: 'video', en: 'Video', pt: 'Vídeo', es: 'Video', icon: '🎬' },
+];
+
+// SFW image models (Vertex AI / Nano Banana). Only shown on the `create` tab.
+const NANO_BANANA_OPTIONS: { id: string; label: string; hint: { en: string; pt: string; es: string } }[] = [
+  { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', hint: { en: 'Highest quality', pt: 'Máxima qualidade', es: 'Máxima calidad' } },
+  { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', hint: { en: 'Faster', pt: 'Mais rápido', es: 'Más rápido' } },
+];
+
+// Aspect ratios accepted by the Gemini endpoint, with a friendly label.
+const ASPECT_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
+  { id: '1:1', label: { en: 'Square 1:1', pt: 'Quadrado 1:1', es: 'Cuadrado 1:1' } },
+  { id: '4:5', label: { en: 'Portrait 4:5', pt: 'Retrato 4:5', es: 'Retrato 4:5' } },
+  { id: '3:4', label: { en: 'Portrait 3:4', pt: 'Retrato 3:4', es: 'Retrato 3:4' } },
+  { id: '9:16', label: { en: 'Story 9:16', pt: 'Story 9:16', es: 'Story 9:16' } },
+  { id: '4:3', label: { en: 'Landscape 4:3', pt: 'Paisagem 4:3', es: 'Paisaje 4:3' } },
+  { id: '3:2', label: { en: 'Landscape 3:2', pt: 'Paisagem 3:2', es: 'Paisaje 3:2' } },
+  { id: '16:9', label: { en: 'Wide 16:9', pt: 'Wide 16:9', es: 'Wide 16:9' } },
+  { id: '21:9', label: { en: 'Cinema 21:9', pt: 'Cinema 21:9', es: 'Cine 21:9' } },
+];
+
+// Output resolution (quality).
+const QUALITY_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
+  { id: '1K', label: { en: '1K · fast', pt: '1K · rápido', es: '1K · rápido' } },
+  { id: '2K', label: { en: '2K · balanced', pt: '2K · equilibrado', es: '2K · equilibrado' } },
+  { id: '4K', label: { en: '4K · max', pt: '4K · máx', es: '4K · máx' } },
 ];
 
 const labelFor = (tab: typeof TABS[number], lang: Lang) =>
@@ -48,7 +57,10 @@ export default function GenPanel({
   credits: number;
   isAnon?: boolean;
 }) {
-  const [kind, setKind] = useState<Kind>('undress');
+  const [kind, setKind] = useState<Kind>('enhance');
+  const [model, setModel] = useState<string>(NANO_BANANA_OPTIONS[0].id);
+  const [aspect, setAspect] = useState<string>('1:1');
+  const [quality, setQuality] = useState<string>('2K');
   const [editPrompt, setEditPrompt] = useState('');
   const [reusedUrl, setReusedUrl] = useState<string | null>(null);
   const [result, setResult] = useState<GenResult | null>(null);
@@ -57,7 +69,14 @@ export default function GenPanel({
   const [open, setOpen] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [freeUsed, setFreeUsed] = useState(false);
-  const [videoPoll, setVideoPoll] = useState<VideoPoll | null>(null);
+  const [videoPoll, setVideoPoll] = useState<{
+    runId: string;
+    remaining: number;
+    status: string;
+    progress: number;
+    liveStatus: string | null;
+  } | null>(null);
+  const [imagePoll, setImagePoll] = useState<{ genId: string; remaining: number } | null>(null);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -66,32 +85,6 @@ export default function GenPanel({
       setFreeUsed(window.localStorage.getItem(ANON_KEY) === '1');
     }
   }, [isAnon]);
-
-  useEffect(() => {
-    if (isAnon || typeof window === 'undefined') return;
-    try {
-      const raw = window.localStorage.getItem(VIDEO_POLL_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw) as VideoPoll;
-      if (!saved?.runId || Date.now() - (saved.startedAt ?? 0) > VIDEO_POLL_TTL_MS) {
-        window.localStorage.removeItem(VIDEO_POLL_KEY);
-        return;
-      }
-      setKind('video');
-      setVideoPoll(saved);
-    } catch {
-      window.localStorage.removeItem(VIDEO_POLL_KEY);
-    }
-  }, [isAnon]);
-
-  useEffect(() => {
-    if (isAnon || typeof window === 'undefined') return;
-    if (videoPoll) {
-      window.localStorage.setItem(VIDEO_POLL_KEY, JSON.stringify(videoPoll));
-    } else {
-      window.localStorage.removeItem(VIDEO_POLL_KEY);
-    }
-  }, [videoPoll, isAnon]);
 
   useEffect(() => {
     if (!videoPoll || result?.ok) return;
@@ -145,19 +138,80 @@ export default function GenPanel({
     };
   }, [videoPoll, result, router]);
 
+  // Poll background image generations (SFW `create` tab).
+  useEffect(() => {
+    if (!imagePoll || result?.ok) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = Date.now();
+    const MAX_MS = 4 * 60 * 1000;
+
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/image-status/${imagePoll.genId}`, { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data.status === 'success' && data.outputUrl) {
+          setResult({ ok: true, outputUrl: data.outputUrl, remaining: imagePoll.remaining });
+          setImagePoll(null);
+          router.refresh();
+          return;
+        }
+        if (data.status === 'failed') {
+          setResult({
+            ok: false,
+            error: data.error || 'Generation failed',
+            refunded: Boolean(data.refunded),
+          });
+          setImagePoll(null);
+          router.refresh();
+          return;
+        }
+        if (Date.now() - startedAt > MAX_MS) {
+          setResult({
+            ok: false,
+            error:
+              lang === 'pt'
+                ? 'A geração demorou demais. Tente novamente.'
+                : lang === 'es'
+                ? 'La generación tardó demasiado. Inténtalo de nuevo.'
+                : 'Generation took too long. Please try again.',
+          });
+          setImagePoll(null);
+          return;
+        }
+        timer = setTimeout(tick, 2500);
+      } catch {
+        if (cancelled) return;
+        timer = setTimeout(tick, 4000);
+      }
+    };
+
+    timer = setTimeout(tick, 2000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [imagePoll, result, router, lang]);
+
   const expectedFiles = kind === 'faceswap' ? 2 : 1;
-  const cost = kind === 'video' ? CREDITS_PER_VIDEO : CREDITS_PER_IMAGE;
+  const cost = kind === 'video' ? 25 : 5;
   const showUpload = !((kind === 'edit' || kind === 'video') && reusedUrl);
   const blockedAnon = isAnon && (freeUsed || kind === 'video');
   const insufficient = !isAnon && credits < cost;
-  const needsPrompt = kind === 'edit' || kind === 'video';
+  const needsPrompt = kind === 'edit' || kind === 'video' || kind === 'create';
+  const promptOk = editPrompt.trim().length > 1;
   const canSubmit =
     !pending &&
     !videoPoll &&
+    !imagePoll &&
     !insufficient &&
     !blockedAnon &&
-    (needsPrompt
-      ? editPrompt.trim().length > 1 && (reusedUrl || files.length >= 1)
+    (kind === 'create'
+      ? promptOk // reference image optional
+      : needsPrompt
+      ? promptOk && (reusedUrl || files.length >= 1)
       : files.length >= expectedFiles);
 
   function handleFiles(list: FileList | File[]) {
@@ -170,9 +224,14 @@ export default function GenPanel({
     e.preventDefault();
     const fd = new FormData();
     fd.set('kind', kind);
-    if (kind === 'edit' || kind === 'video') {
+    if (kind === 'edit' || kind === 'video' || kind === 'create') {
       fd.set('prompt', editPrompt);
       if (reusedUrl) fd.set('reused_url', reusedUrl);
+    }
+    if (kind === 'create') {
+      fd.set('model', model);
+      fd.set('aspect_ratio', aspect);
+      fd.set('image_size', quality);
     }
     for (const f of files) fd.append('images', f);
     start(async () => {
@@ -185,8 +244,14 @@ export default function GenPanel({
           status: 'queued',
           progress: 0,
           liveStatus: null,
-          startedAt: Date.now(),
         });
+        setFiles([]);
+        router.refresh();
+        return;
+      }
+      if (r.ok && 'isAsync' in r && r.isAsync) {
+        setResult(null);
+        setImagePoll({ genId: r.genId, remaining: r.remaining });
         setFiles([]);
         router.refresh();
         return;
@@ -211,8 +276,16 @@ export default function GenPanel({
   }
 
   const uploadHint =
-    kind === 'faceswap'
+    kind === 'create'
+      ? lang === 'pt'
+        ? 'Imagem de referência (opcional)'
+        : lang === 'es'
+        ? 'Imagen de referencia (opcional)'
+        : 'Reference image (optional)'
+      : kind === 'faceswap'
       ? t('uploadTwoFace', lang)
+      : kind === 'enhance'
+      ? t('uploadOneEnhance', lang)
       : t('uploadOne', lang);
 
   return (
@@ -220,50 +293,41 @@ export default function GenPanel({
       {/* tabs */}
       <div className="border-b border-white/10 px-2 pt-2 flex gap-1 overflow-x-auto">
         {TABS.map((tb) => {
-          const active = !tb.soon && kind === tb.id;
-          const soonLabel = lang === 'pt' ? 'em breve' : lang === 'es' ? 'pronto' : 'soon';
+          const active = kind === tb.id;
           return (
             <button
               key={tb.id}
               type="button"
-              disabled={tb.soon}
-              onClick={() => !tb.soon && resetKind(tb.id as Kind)}
+              onClick={() => resetKind(tb.id)}
               className={`relative px-4 py-3 text-sm font-semibold rounded-t-lg transition-colors whitespace-nowrap ${
-                tb.soon
-                  ? 'text-bone-mute/60 cursor-not-allowed'
-                  : active
+                active
                   ? 'bg-ink-700 text-bone border-b-2 border-lime'
                   : 'text-bone-dim hover:text-bone hover:bg-white/5'
               }`}
             >
               <span className="mr-2">{tb.icon}</span>
               {labelFor(tb, lang)}
-              {tb.soon && (
-                <span className="ml-2 text-[9px] font-bold tracking-widest uppercase px-1.5 py-0.5 rounded bg-lime/15 text-lime align-middle">
-                  {soonLabel}
-                </span>
-              )}
             </button>
           );
         })}
       </div>
 
       {!isAnon && (
-        <div className="mx-6 md:mx-8 mt-6 border border-amber-500/40 bg-amber-500/[0.06] rounded-xl px-4 py-3 text-xs text-amber-200/90 flex items-start gap-2">
-          <span aria-hidden className="text-amber-400 font-bold leading-none mt-px">⚠</span>
+        <div className="mx-6 md:mx-8 mt-6 border border-lime/30 bg-lime/[0.06] rounded-xl px-4 py-3 text-xs text-bone-dim flex items-start gap-2">
+          <span aria-hidden className="text-lime font-bold leading-none mt-px">✓</span>
           <div>
-            <strong className="text-amber-300 font-bold">
+            <strong className="text-lime font-bold">
               {lang === 'pt'
-                ? 'Não armazenamos suas gerações.'
+                ? 'Suas gerações ficam salvas.'
                 : lang === 'es'
-                ? 'No almacenamos tus generaciones.'
-                : "We don't store your generations."}
+                ? 'Tus generaciones quedan guardadas.'
+                : 'Your generations are saved.'}
             </strong>{' '}
             {lang === 'pt'
-              ? 'Os links de saída expiram em até 48h. Baixe imediatamente — depois disso o conteúdo é perdido e não pode ser recuperado.'
+              ? 'Todo resultado fica disponível no seu histórico — acesse e baixe quando quiser.'
               : lang === 'es'
-              ? 'Los enlaces de salida expiran en hasta 48h. Descarga al instante — luego el contenido se pierde y no puede recuperarse.'
-              : 'Output links expire within 48h. Download immediately — after that the content is lost and cannot be recovered.'}
+              ? 'Cada resultado queda disponible en tu historial — accede y descarga cuando quieras.'
+              : 'Every result stays in your history — access and download it whenever you want.'}
           </div>
         </div>
       )}
@@ -271,31 +335,64 @@ export default function GenPanel({
       <form onSubmit={handleSubmit} className="p-6 md:p-8 grid lg:grid-cols-[1fr_300px] gap-8">
         {/* input area */}
         <div className="space-y-5">
-          {!showUpload && reusedUrl && (
+          {kind === 'create' && (
             <div>
               <label className="field-label">
-                {lang === 'pt' ? 'Imagem base' : lang === 'es' ? 'Imagen base' : 'Source image'}
+                {lang === 'pt' ? 'Modelo' : lang === 'es' ? 'Modelo' : 'Model'}
               </label>
-              <div className="relative rounded-2xl border border-lime/40 bg-lime/5 overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={reusedUrl}
-                  alt=""
-                  className="w-full max-h-[420px] object-contain bg-ink-900"
-                />
-                <div className="absolute top-3 left-3 text-[10px] font-bold tracking-widest bg-ink-900/80 backdrop-blur-sm px-2 py-1 rounded text-lime">
-                  {lang === 'pt' ? 'REAPROVEITADA' : lang === 'es' ? 'REUTILIZADA' : 'REUSED'}
+              <div className="grid grid-cols-2 gap-2">
+                {NANO_BANANA_OPTIONS.map((m) => {
+                  const active = model === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setModel(m.id)}
+                      className={`text-left rounded-xl border px-4 py-3 transition-colors ${
+                        active
+                          ? 'border-lime bg-lime/10'
+                          : 'border-white/10 bg-ink-900 hover:border-white/30'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 font-bold text-sm">
+                        <span aria-hidden>🍌</span>
+                        {m.label}
+                      </div>
+                      <div className="text-[11px] text-bone-dim mt-0.5">{m.hint[lang]}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                <div>
+                  <label className="field-label">
+                    {lang === 'pt' ? 'Proporção' : lang === 'es' ? 'Proporción' : 'Aspect ratio'}
+                  </label>
+                  <select value={aspect} onChange={(e) => setAspect(e.target.value)} className="input">
+                    {ASPECT_OPTIONS.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label[lang]}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setReusedUrl(null)}
-                  className="absolute top-3 right-3 text-[10px] font-bold tracking-widest bg-ink-900/80 hover:bg-ink-900 backdrop-blur-sm px-2 py-1 rounded text-bone"
-                >
-                  {t('uploadNew', lang)} ↑
-                </button>
+                <div>
+                  <label className="field-label">
+                    {lang === 'pt' ? 'Qualidade' : lang === 'es' ? 'Calidad' : 'Quality'}
+                  </label>
+                  <select value={quality} onChange={(e) => setQuality(e.target.value)} className="input">
+                    {QUALITY_OPTIONS.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        {q.label[lang]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           )}
+
           {showUpload && (
             <div>
               <label className="field-label">{uploadHint}</label>
@@ -359,6 +456,12 @@ export default function GenPanel({
                     : lang === 'es'
                     ? 'Describe lo que debe pasar en el video.'
                     : 'Describe what should happen in the video.'
+                  : kind === 'create'
+                  ? lang === 'pt'
+                    ? 'Descreva a imagem que você quer criar.'
+                    : lang === 'es'
+                    ? 'Describe la imagen que quieres crear.'
+                    : 'Describe the image you want to create.'
                   : t('editHint', lang)}
               </label>
               <textarea
@@ -372,6 +475,12 @@ export default function GenPanel({
                       : lang === 'es'
                       ? 'Ej: la mujer camina lentamente hacia la cámara, balanceando el pelo'
                       : 'Ex: the woman walks slowly toward the camera, swaying her hair'
+                    : kind === 'create'
+                    ? lang === 'pt'
+                      ? 'Ex: um filhote de golden retriever brincando num parque ensolarado, foto realista'
+                      : lang === 'es'
+                      ? 'Ej: un cachorro golden retriever jugando en un parque soleado, fotorrealista'
+                      : 'Ex: a golden retriever puppy playing in a sunny park, photorealistic'
                     : lang === 'pt'
                     ? 'Ex: troque o fundo por uma praia ao entardecer'
                     : lang === 'es'
@@ -380,6 +489,15 @@ export default function GenPanel({
                 }
                 className="input resize-none"
               />
+              {reusedUrl && (
+                <p className="text-xs text-bone-dim mt-2 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-lime" />
+                  {t('reusing', lang)} ·{' '}
+                  <button type="button" className="text-lime font-semibold hover:underline" onClick={() => setReusedUrl(null)}>
+                    {t('uploadNew', lang)}
+                  </button>
+                </p>
+              )}
             </div>
           )}
 
@@ -420,12 +538,34 @@ export default function GenPanel({
                   style={{ width: `${Math.max(2, Math.round((videoPoll.progress ?? 0) * 100))}%` }}
                 />
               </div>
+              {videoPoll.liveStatus && (
+                <p className="text-[11px] text-bone-mute font-mono truncate">{videoPoll.liveStatus}</p>
+              )}
               <p className="text-xs text-bone-dim">
                 {lang === 'pt'
                   ? 'Você pode fechar a aba — o vídeo aparece no histórico quando ficar pronto.'
                   : lang === 'es'
                   ? 'Puedes cerrar la pestaña — el video aparece en el historial cuando esté listo.'
                   : 'You can close this tab — the video will appear in your history when ready.'}
+              </p>
+            </div>
+          )}
+
+          {imagePoll && (
+            <div className="border border-lime/30 bg-lime/5 rounded-xl p-4 text-sm space-y-3">
+              <div className="font-bold text-lime flex items-center gap-2">
+                <span className="inline-block w-2 h-2 rounded-full bg-lime animate-pulse" />
+                {lang === 'pt' ? 'Gerando imagem' : lang === 'es' ? 'Generando imagen' : 'Generating image'}
+              </div>
+              <div className="h-2 bg-ink-900 rounded-full overflow-hidden">
+                <div className="h-full w-1/3 bg-lime/70 rounded-full animate-pulse" />
+              </div>
+              <p className="text-xs text-bone-dim">
+                {lang === 'pt'
+                  ? 'Pode deixar rodando — a imagem aparece aqui e no histórico quando ficar pronta.'
+                  : lang === 'es'
+                  ? 'Puedes dejarlo corriendo — la imagen aparece aquí y en el historial cuando esté lista.'
+                  : 'Leave it running — the image appears here and in your history when ready.'}
               </p>
             </div>
           )}
@@ -455,7 +595,7 @@ export default function GenPanel({
 
           <div className="space-y-3.5 text-sm">
             <Row label={lang === 'pt' ? 'Motor' : lang === 'es' ? 'Motor' : 'Engine'} value={labelFor(TABS.find((x) => x.id === kind)!, lang)} />
-            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${reusedUrl && (kind === 'edit' || kind === 'video') ? 1 : files.length}/${expectedFiles}`} />
+            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${reusedUrl && kind === 'edit' ? 1 : files.length}/${expectedFiles}`} />
             {isAnon ? (
               <>
                 <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value="FREE" accent />
@@ -473,13 +613,15 @@ export default function GenPanel({
 
           <div className="mt-auto pt-6">
             <button type="submit" disabled={!canSubmit} className="btn-primary w-full">
-              {pending || videoPoll ? (
+              {pending || videoPoll || imagePoll ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="inline-block w-4 h-4 border-2 border-ink-900/30 border-t-ink-900 rounded-full animate-spin" />
                   {videoPoll
                     ? videoPoll.status === 'queued'
                       ? lang === 'pt' ? 'Na fila…' : lang === 'es' ? 'En cola…' : 'Queued…'
                       : `${Math.round((videoPoll.progress ?? 0) * 100)}%`
+                    : imagePoll
+                    ? lang === 'pt' ? 'Gerando…' : lang === 'es' ? 'Generando…' : 'Generating…'
                     : null}
                 </span>
               ) : isAnon ? (
@@ -488,6 +630,16 @@ export default function GenPanel({
                 <>{t('generate', lang)} → {cost} CR</>
               )}
             </button>
+            {videoPoll && videoPoll.liveStatus && (
+              <p className="text-[11px] text-bone-mute mt-2 text-center font-mono truncate">
+                {videoPoll.liveStatus}
+              </p>
+            )}
+            <p className="text-xs text-bone-mute mt-2.5 text-center">
+              {kind === 'video'
+                ? lang === 'pt' ? '~ 2 a 3 min' : lang === 'es' ? '~ 2 a 3 min' : '~ 2 to 3 min'
+                : lang === 'pt' ? '~ 30 a 60s' : lang === 'es' ? '~ 30 a 60s' : '~ 30 to 60s'}
+            </p>
           </div>
         </aside>
 
@@ -532,42 +684,19 @@ export default function GenPanel({
                 </button>
               )}
               <div className="mt-4 flex flex-col items-center gap-3">
-                <div className="text-center text-[11px] text-amber-300 font-semibold uppercase tracking-widest">
+                <div className="text-center text-[11px] text-lime/90 font-semibold uppercase tracking-widest">
                   {lang === 'pt'
-                    ? '⚠ Baixe agora — link expira em ~48h e não fica salvo'
+                    ? '✓ Salvo no seu histórico'
                     : lang === 'es'
-                    ? '⚠ Descarga ahora — el enlace expira en ~48h y no se guarda'
-                    : '⚠ Download now — link expires in ~48h and is not saved'}
+                    ? '✓ Guardado en tu historial'
+                    : '✓ Saved to your history'}
                 </div>
-                <div className="flex justify-center gap-3 flex-wrap">
+                <div className="flex justify-center gap-3">
                   <a href={result.outputUrl} download className="btn-primary text-xs">↓ {t('download', lang)}</a>
                   {!isVid && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setKind('edit');
-                          setReusedUrl(result.outputUrl);
-                          setEditPrompt('');
-                          setResult(null);
-                        }}
-                        className="btn-ghost text-xs"
-                      >
-                        ✏️ {lang === 'pt' ? 'Editar imagem' : lang === 'es' ? 'Editar imagen' : 'Edit image'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setKind('video');
-                          setReusedUrl(result.outputUrl);
-                          setEditPrompt('');
-                          setResult(null);
-                        }}
-                        className="btn-ghost text-xs"
-                      >
-                        🎬 {lang === 'pt' ? 'Gerar vídeo' : lang === 'es' ? 'Generar video' : 'Generate video'}
-                      </button>
-                    </>
+                    <button type="button" onClick={() => { setKind('edit'); setReusedUrl(result.outputUrl); setResult(null); }} className="btn-ghost text-xs">
+                      ↻ {t('reuse', lang)}
+                    </button>
                   )}
                 </div>
               </div>

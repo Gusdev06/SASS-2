@@ -6,7 +6,6 @@ import { t } from '@/lib/i18n';
 import { getLang } from '@/lib/lang';
 import GenPanel from '@/components/GenPanel';
 import HistoryGrid from '@/components/HistoryGrid';
-import { CREDITS_PER_IMAGE } from '@/lib/prompts';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -56,7 +55,7 @@ export default async function DashboardPage() {
 
         <section>
           <h2 className="text-2xl font-bold tracking-tight mb-5">{t('newRender', lang)}</h2>
-          <GenPanel lang={lang} credits={10} isAnon />
+          <GenPanel lang={lang} credits={5} isAnon />
         </section>
       </div>
     );
@@ -80,8 +79,8 @@ export default async function DashboardPage() {
 
   const lang = await getLang(profile?.language_code);
   const credits = profile?.credits ?? 0;
-  const imagesAvailable = Math.floor(credits / CREDITS_PER_IMAGE);
-  const totalSpent = (totalRenders ?? 0) * CREDITS_PER_IMAGE;
+  const imagesAvailable = Math.floor(credits / 5);
+  const totalSpent = (totalRenders ?? 0) * 5;
 
   return (
     <div className="space-y-10">
@@ -109,7 +108,7 @@ export default async function DashboardPage() {
           { k: t('credits', lang), v: credits.toString() },
           { k: t('totalRenders', lang), v: (totalRenders ?? 0).toString().padStart(2, '0') },
           { k: t('totalSpent', lang), v: `${totalSpent} cr` },
-          { k: 'STATUS', v: credits >= CREDITS_PER_IMAGE ? 'READY' : 'EMPTY' },
+          { k: 'STATUS', v: credits >= 5 ? 'READY' : 'EMPTY' },
         ].map((s) => (
           <div key={s.k} className="card">
             <p className="text-[10px] font-bold tracking-widest text-bone-mute uppercase mb-2">{s.k}</p>
