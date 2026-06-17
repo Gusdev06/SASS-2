@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image';
 import type { PromptTemplate } from '@/lib/promptsApi';
 
 const TYPE_LABEL: Record<string, string> = {
@@ -43,12 +44,13 @@ export default function PromptCard({
     >
       <div className="aspect-[9/16] bg-ink-700 overflow-hidden relative">
         {thumb ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
+          <Image
             src={thumb}
             alt={prompt.title}
-            loading="lazy"
-            className="w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"
+            fill
+            quality={60}
+            sizes="(min-width: 1024px) 320px, (min-width: 768px) 33vw, 50vw"
+            className="object-cover group-hover:scale-[1.04] transition-transform duration-500"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-bone-mute text-xs">no preview</div>

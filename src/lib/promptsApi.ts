@@ -1,3 +1,5 @@
+import data from '@/data/prompts.json';
+
 export type PromptType =
   | 'text_to_image'
   | 'image_to_image'
@@ -34,31 +36,34 @@ export interface PromptSectionsResponse {
   sections: PromptSection[];
 }
 
-const BASE = 'https://clip-generator-geraew-api.ernvcw.easypanel.host/api/v1/prompts';
-const REVALIDATE = 600;
+// Prompts are now bundled with the app (migrated from the old external API into
+// src/data/prompts.json, images hosted on our own Supabase Storage). These stay
+// async to keep the existing call sites unchanged.
+const SECTIONS = (data as PromptSectionsResponse).sections;
 
 export async function fetchAllPromptSections(): Promise<PromptSection[]> {
-  const res = await fetch(BASE, { next: { revalidate: REVALIDATE } });
-  if (!res.ok) throw new Error(`prompts api ${res.status}`);
-  const json = (await res.json()) as PromptSectionsResponse;
-  return [...(json.sections ?? [])].reverse();
+  return SECTIONS;
 }
 
 export async function fetchPromptSection(slug: string): Promise<PromptSection | null> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(slug)}`, {
-    next: { revalidate: REVALIDATE },
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`prompts api ${res.status}`);
-  return (await res.json()) as PromptSection;
+  return SECTIONS.find((s) => s.slug === slug) ?? null;
 }
 
 export async function searchPrompts(q: string): Promise<PromptTemplate[]> {
-  const term = q.trim();
+  const term = q.trim().toLowerCase();
   if (!term) return [];
-  const res = await fetch(`${BASE}/search?q=${encodeURIComponent(term)}`, {
-    next: { revalidate: 60 },
-  });
-  if (!res.ok) throw new Error(`prompts api ${res.status}`);
-  return (await res.json()) as PromptTemplate[];
+  const out: PromptTemplate[] = [];
+  for (const section of SECTIONS) {
+    for (const category of section.categories) {
+      for (const p of category.prompts) {
+        if (
+          p.title.toLowerCase().includes(term) ||
+          p.prompt.toLowerCase().includes(term)
+        ) {
+          out.push(p);
+        }
+      }
+    }
+  }
+  return out;
 }
