@@ -1,14 +1,15 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUser } from '@/lib/auth';
 import { t } from '@/lib/i18n';
 import { getLang } from '@/lib/lang';
 import SettingsForm from './form';
 
 export default async function SettingsPage() {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+  const user = await getUser();
   if (!user) redirect('/login');
+
+  const supabase = await createClient();
 
   const [{ data: profile }, { count: totalRenders }] = await Promise.all([
     supabase

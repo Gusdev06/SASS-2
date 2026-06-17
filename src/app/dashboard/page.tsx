@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { getUser, getProfile } from '@/lib/auth';
 
 export const maxDuration = 300;
 import { t } from '@/lib/i18n';
@@ -8,9 +9,7 @@ import GenPanel from '@/components/GenPanel';
 import HistoryGrid from '@/components/HistoryGrid';
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+  const user = await getUser();
 
   if (!user) {
     const lang = await getLang();
@@ -61,8 +60,9 @@ export default async function DashboardPage() {
     );
   }
 
-  const [{ data: profile }, { data: recent }, { count: totalRenders }] = await Promise.all([
-    supabase.from('profiles').select('credits, language_code').eq('user_id', user.id).single(),
+  const supabase = await createClient();
+  const [profile, { data: recent }, { count: totalRenders }] = await Promise.all([
+    getProfile(),
     supabase
       .from('generations')
       .select('id, prompt, output_url, kind, created_at, credits_spent')

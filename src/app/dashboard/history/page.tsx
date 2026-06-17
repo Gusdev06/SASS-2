@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getUser, getProfile } from '@/lib/auth';
 import { t } from '@/lib/i18n';
 import { getLang } from '@/lib/lang';
 import HistoryGrid from '@/components/HistoryGrid';
@@ -12,17 +13,11 @@ export default async function HistoryPage({
 }: {
   searchParams: Promise<{ kind?: string }>;
 }) {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+  const user = await getUser();
   if (!user) redirect('/login');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('language_code')
-    .eq('user_id', user.id)
-    .single();
-
+  const supabase = await createClient();
+  const profile = await getProfile();
   const lang = await getLang(profile?.language_code);
 
   const sp = await searchParams;

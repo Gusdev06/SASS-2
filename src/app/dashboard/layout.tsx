@@ -1,25 +1,13 @@
-import { createClient } from '@/lib/supabase/server';
+import { getUser, getProfile } from '@/lib/auth';
 import { getLang } from '@/lib/lang';
 import AppShell from '@/components/AppShell';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
+  const user = await getUser();
+  const profile = user ? await getProfile() : null;
+  const credits = profile?.credits ?? 0;
 
-  let credits = 0;
-  let languageCode: string | null = null;
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('credits, language_code')
-      .eq('user_id', user.id)
-      .single();
-    credits = profile?.credits ?? 0;
-    languageCode = profile?.language_code ?? null;
-  }
-
-  const lang = await getLang(languageCode);
+  const lang = await getLang(profile?.language_code ?? null);
   return (
     <AppShell lang={lang} credits={credits} email={user?.email ?? null}>
       {children}
