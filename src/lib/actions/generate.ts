@@ -30,7 +30,6 @@ import {
   VIDEO_DURATIONS,
   DEFAULT_VIDEO_DURATION,
   videoCost,
-  videoFrames,
   type VideoDuration,
 } from '@/lib/prompts';
 
@@ -379,7 +378,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       const runId = await queueRun({
         input_image: videoInputUrl,
         prompt,
-        length: videoFrames(videoDuration),
+        duration: videoDuration,
       });
       await service
         .from('generations')

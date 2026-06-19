@@ -53,9 +53,9 @@ export async function uploadAsset(
 export async function queueRun(inputs: {
   input_image: string;
   prompt: string;
-  // Nº de frames do nó WanImageToVideo. O deployment precisa expor um external
-  // input `length` (ExternalNumberInt) ligado ao campo `length` desse nó.
-  length?: number;
+  // Duração do vídeo em segundos. O deployment expõe um external input
+  // `duration`; a conversão para frames (× frame_rate) é feita no workflow.
+  duration?: number;
 }): Promise<string> {
   if (!DEPLOYMENT) throw new Error('COMFYDEPLOY_DEPLOYMENT_ID missing');
   const res = await fetch(`${API}/api/run/deployment/queue`, {
@@ -81,9 +81,9 @@ export async function getRun(runId: string): Promise<Run> {
 export async function generateVideo(
   prompt: string,
   inputImageUrl: string,
-  length?: number
+  duration?: number
 ): Promise<string> {
-  const runId = await queueRun({ input_image: inputImageUrl, prompt, length });
+  const runId = await queueRun({ input_image: inputImageUrl, prompt, duration });
   const t0 = Date.now();
   while (Date.now() - t0 < POLL_TIMEOUT_MS) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
