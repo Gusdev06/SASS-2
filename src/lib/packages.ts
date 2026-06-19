@@ -37,13 +37,15 @@ export function findPackage(id: string): CreditPackage | undefined {
   return PACKAGES.find((p) => p.id === id);
 }
 
-export function packagesFor(currency: Currency): CreditPackage[] {
-  return currency === 'BRL' ? PACKAGES_BRL : PACKAGES_USD;
+// Pacotes exibidos são SEMPRE em dólar (USD), para todo mundo. A lista BRL é
+// mantida apenas para `findPackage` resolver/creditar eventuais compras BRL
+// antigas no webhook — ela nunca é exibida.
+export function packagesFor(_currency?: Currency): CreditPackage[] {
+  return PACKAGES_USD;
 }
 
-export function currencyForLanguage(lang: string | null | undefined): Currency {
-  if (!lang) return 'USD';
-  return /^pt(-|$)/i.test(lang) ? 'BRL' : 'USD';
+export function currencyForLanguage(_lang?: string | null): Currency {
+  return 'USD';
 }
 
 export function formatPrice(value: number, currency: Currency): string {

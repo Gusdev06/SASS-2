@@ -1,5 +1,3 @@
-import Link from 'next/link';
-import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { t, type Lang } from '@/lib/i18n';
 import { getLang } from '@/lib/lang';
@@ -15,11 +13,7 @@ function payUrl(pkgId: string, userId: string) {
   return checkoutUrlFor(pkgId, userId) ?? '#';
 }
 
-export default async function PricingPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ cur?: string }>;
-}) {
+export default async function PricingPage() {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
   const user = userData.user!;
@@ -30,14 +24,9 @@ export default async function PricingPage({
     .single();
 
   const lang: Lang = await getLang(profile?.language_code);
-  const sp = await searchParams;
-  const country = (await cookies()).get('country')?.value?.toUpperCase();
-  const allowBRL = country === 'BR' || (!country && lang === 'pt');
-  const defaultCur: Currency = allowBRL ? 'BRL' : 'USD';
-  const requested: Currency | null =
-    sp?.cur === 'BRL' || sp?.cur === 'USD' ? (sp.cur as Currency) : null;
-  const currency: Currency = !allowBRL ? 'USD' : (requested ?? defaultCur);
 
+  // Pacotes de crédito são sempre em dólar (USD), para todo mundo.
+  const currency: Currency = 'USD';
   const pkgs = packagesFor(currency);
   const credits = profile?.credits ?? 0;
   const popularIdx = Math.min(3, pkgs.length - 1);
@@ -58,24 +47,6 @@ export default async function PricingPage({
           </p>
         </div>
 
-        {allowBRL && (
-          <div className="inline-flex bg-ink-800 border border-white/10 p-1 rounded-full self-start">
-            {(['BRL', 'USD'] as Currency[]).map((c) => {
-              const active = c === currency;
-              return (
-                <Link
-                  key={c}
-                  href={`/pricing?cur=${c}`}
-                  className={`px-4 py-1.5 text-xs font-semibold tracking-wider rounded-full transition-colors ${
-                    active ? 'bg-lime text-ink-900' : 'text-bone-dim hover:text-bone'
-                  }`}
-                >
-                  {c === 'BRL' ? 'R$ BRL' : '$ USD'}
-                </Link>
-              );
-            })}
-          </div>
-        )}
       </header>
 
       <section className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
