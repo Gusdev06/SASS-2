@@ -94,11 +94,13 @@ export default function GenPanel({
   credits,
   isAnon = false,
   freeQuota,
+  resume,
 }: {
   lang: Lang;
   credits: number;
   isAnon?: boolean;
   freeQuota?: FreeQuotaState;
+  resume?: { kind: 'video'; runId: string } | { kind: 'image'; genId: string } | null;
 }) {
   const [kind, setKind] = useState<Kind>('create');
   const [model, setModel] = useState<string>(MODEL_OPTIONS[0].id);
@@ -240,6 +242,25 @@ export default function GenPanel({
       if (timer) clearTimeout(timer);
     };
   }, [imagePoll, result, router, lang]);
+
+  // Religa o acompanhamento de uma geração em andamento depois de um refresh
+  // (o estado do poll vive só na memória; aqui reidratamos a partir do servidor).
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (resumedRef.current || !resume) return;
+    resumedRef.current = true;
+    if (resume.kind === 'video') {
+      setVideoPoll({
+        runId: resume.runId,
+        remaining: credits,
+        status: 'processing',
+        progress: 0,
+        liveStatus: null,
+      });
+    } else {
+      setImagePoll({ genId: resume.genId, remaining: credits });
+    }
+  }, [resume, credits]);
 
   const engine = (MODEL_OPTIONS.find((m) => m.id === model) ?? MODEL_OPTIONS[0]).engine;
   const isGpt = engine === 'gpt';

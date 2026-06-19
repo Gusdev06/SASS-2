@@ -62,27 +62,52 @@ export default async function DashboardPage() {
   }
 
   const supabase = await createClient();
-  const [profile, { data: recent }, { count: totalRenders }, freeQuota] = await Promise.all([
-    getProfile(),
-    supabase
-      .from('generations')
-      .select('id, prompt, output_url, kind, created_at, credits_spent')
-      .eq('user_id', user.id)
-      .not('output_url', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(8),
-    supabase
-      .from('generations')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', user.id)
-      .not('output_url', 'is', null),
-    getFreeQuota(user.id),
-  ]);
+  // Gerações ainda em andamento (rodando no background). Limitamos às recentes
+  // (~10 min) para não "ressuscitar" linhas antigas travadas no carregamento.
+  const pendingCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const [profile, { data: recent }, { count: totalRenders }, freeQuota, { data: pendingRows }] =
+    await Promise.all([
+      getProfile(),
+      supabase
+        .from('generations')
+        .select('id, prompt, output_url, kind, created_at, credits_spent')
+        .eq('user_id', user.id)
+        .not('output_url', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(8),
+      supabase
+        .from('generations')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .not('output_url', 'is', null),
+      getFreeQuota(user.id),
+      supabase
+        .from('generations')
+        .select('id, kind, input_urls, created_at')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .gte('created_at', pendingCutoff)
+        .order('created_at', { ascending: false })
+        .limit(1),
+    ]);
 
   const lang = await getLang(profile?.language_code);
   const credits = profile?.credits ?? 0;
   const imagesAvailable = Math.floor(credits / 5);
   const totalSpent = (totalRenders ?? 0) * 5;
+
+  // Religa o acompanhamento da geração em andamento após um refresh: vídeo via
+  // runId (marcador `run:` em input_urls) e imagem via genId.
+  const pending = pendingRows?.[0];
+  let resume: { kind: 'video'; runId: string } | { kind: 'image'; genId: string } | null = null;
+  if (pending) {
+    if (pending.kind === 'video') {
+      const marker = (pending.input_urls ?? []).find((u: string) => u.startsWith('run:'));
+      if (marker) resume = { kind: 'video', runId: marker.slice(4) };
+    } else {
+      resume = { kind: 'image', genId: pending.id };
+    }
+  }
 
   return (
     <div className="space-y-10">
@@ -121,7 +146,7 @@ export default async function DashboardPage() {
 
       <section>
         <h2 className="text-2xl font-bold tracking-tight mb-5">{t('newRender', lang)}</h2>
-        <GenPanel lang={lang} credits={credits} freeQuota={freeQuota} />
+        <GenPanel lang={lang} credits={credits} freeQuota={freeQuota} resume={resume} />
       </section>
 
       <section>

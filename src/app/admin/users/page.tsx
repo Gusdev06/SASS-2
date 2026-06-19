@@ -16,12 +16,12 @@ export default async function AdminUsersPage({
   const service = createServiceClient();
   let query = service
     .from('profiles')
-    .select('user_id, email, username, credits, banned, created_at')
+    .select('user_id, email, credits, banned, created_at')
     .order('created_at', { ascending: false })
     .limit(PAGE_SIZE);
 
   if (search) {
-    query = query.or(`email.ilike.%${search}%,username.ilike.%${search}%`);
+    query = query.ilike('email', `%${search}%`);
   }
 
   const { data: users, error } = await query;
@@ -38,7 +38,7 @@ export default async function AdminUsersPage({
           <input
             name="q"
             defaultValue={search}
-            placeholder="Buscar por email ou usuário"
+            placeholder="Buscar por email"
             className="input !py-2.5 w-full md:w-72 text-sm"
           />
           <button type="submit" className="btn-ghost !py-2.5 text-sm">Buscar</button>

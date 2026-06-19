@@ -1,12 +1,14 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { adjustCreditsAction, setBannedAction, type AdminState } from '@/lib/actions/admin';
+
+// Atalhos de crédito (espelham os tamanhos de pacote mais comuns).
+const QUICK_CREDITS = [30, 75, 150, 350];
 
 export type AdminUser = {
   user_id: string;
   email: string | null;
-  username: string | null;
   credits: number;
   banned: boolean;
   created_at: string;
@@ -18,6 +20,12 @@ export default function UserRow({ user }: { user: AdminUser }) {
     {}
   );
   const [banState, setBanned, banPending] = useActionState<AdminState, FormData>(setBannedAction, {});
+  const [delta, setDelta] = useState('');
+
+  // Limpa o campo depois de creditar com sucesso.
+  useEffect(() => {
+    if (creditState.info) setDelta('');
+  }, [creditState]);
 
   const created = new Date(user.created_at).toLocaleDateString('pt-BR');
   const status = creditState.error ?? creditState.info ?? banState.error ?? banState.info;
@@ -28,9 +36,7 @@ export default function UserRow({ user }: { user: AdminUser }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-semibold truncate">{user.email ?? '—'}</p>
-          <p className="text-xs text-bone-mute mt-0.5">
-            {user.username ? `@${user.username} • ` : ''}desde {created}
-          </p>
+          <p className="text-xs text-bone-mute mt-0.5">desde {created}</p>
           <p className="text-[10px] text-bone-mute mt-0.5 font-mono">{user.user_id}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -41,19 +47,38 @@ export default function UserRow({ user }: { user: AdminUser }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/5">
-        <form action={adjustCredits} className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+        <form action={adjustCredits} className="flex flex-wrap items-center gap-2">
           <input type="hidden" name="user_id" value={user.user_id} />
+          <span className="text-[10px] font-bold tracking-widest text-bone-mute uppercase mr-1">
+            Dar créditos
+          </span>
+          {QUICK_CREDITS.map((amount) => (
+            <button
+              key={amount}
+              type="button"
+              onClick={() => setDelta(String(amount))}
+              className="!py-1.5 !px-2.5 text-xs rounded-lg font-semibold bg-lime/10 text-lime hover:bg-lime/20 transition-colors"
+            >
+              +{amount}
+            </button>
+          ))}
           <input
             name="delta"
             type="number"
             step="1"
-            placeholder="±créditos"
+            value={delta}
+            onChange={(e) => setDelta(e.target.value)}
+            placeholder="+ ou −"
             required
-            className="input !py-2 !px-3 w-32 text-sm"
+            className="input !py-2 !px-3 w-24 text-sm"
           />
-          <button type="submit" disabled={creditsPending} className="btn-ghost !py-2 !px-3 text-sm disabled:opacity-50">
-            {creditsPending ? '...' : 'Ajustar'}
+          <button
+            type="submit"
+            disabled={creditsPending}
+            className="btn-primary !py-2 !px-3 text-sm disabled:opacity-50"
+          >
+            {creditsPending ? '...' : 'Dar créditos'}
           </button>
         </form>
 
