@@ -1,5 +1,4 @@
-import Link from 'next/link';
-import { fetchAllPromptSections } from '@/lib/promptsApi';
+import { fetchAllPrompts } from '@/lib/promptsApi';
 import { getLang } from '@/lib/lang';
 import type { Lang } from '@/lib/i18n';
 import PromptCard from '@/components/PromptCard';
@@ -17,7 +16,6 @@ const COPY: Record<Lang, {
   searching: string;
   copy: string;
   copied: string;
-  viewSection: string;
   empty: string;
   loadError: string;
 }> = {
@@ -31,8 +29,7 @@ const COPY: Record<Lang, {
     searching: 'Buscando…',
     copy: 'copiar prompt',
     copied: 'copiado',
-    viewSection: 'Ver seção',
-    empty: 'Sem prompts nesta seção.',
+    empty: 'Nenhum prompt na biblioteca.',
     loadError: 'Não conseguimos carregar os prompts agora. Tente recarregar.',
   },
   en: {
@@ -45,8 +42,7 @@ const COPY: Record<Lang, {
     searching: 'Searching…',
     copy: 'copy prompt',
     copied: 'copied',
-    viewSection: 'View section',
-    empty: 'No prompts in this section.',
+    empty: 'No prompts in the library.',
     loadError: 'We could not load prompts right now. Try reloading.',
   },
   es: {
@@ -59,8 +55,7 @@ const COPY: Record<Lang, {
     searching: 'Buscando…',
     copy: 'copiar prompt',
     copied: 'copiado',
-    viewSection: 'Ver sección',
-    empty: 'Sin prompts en esta sección.',
+    empty: 'Sin prompts en la biblioteca.',
     loadError: 'No pudimos cargar los prompts ahora. Intenta recargar.',
   },
 };
@@ -69,9 +64,9 @@ export default async function PromptsPage() {
   const lang = await getLang();
   const c = COPY[lang];
 
-  let sections;
+  let prompts;
   try {
-    sections = await fetchAllPromptSections();
+    prompts = await fetchAllPrompts();
   } catch {
     return (
       <div className="space-y-6">
@@ -82,7 +77,7 @@ export default async function PromptsPage() {
   }
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10">
       <header className="pb-6 border-b border-white/10">
         <p className="text-xs font-bold tracking-widest text-bone-mute uppercase mb-3">{c.eyebrow}</p>
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight">{c.title}</h1>
@@ -100,47 +95,14 @@ export default async function PromptsPage() {
         }}
       />
 
-      {sections.length === 0 ? (
+      {prompts.length === 0 ? (
         <p className="text-center text-sm text-bone-mute py-12">{c.empty}</p>
       ) : (
-        sections.map((section) => (
-          <section key={section.id} className="space-y-6">
-            <div className="flex items-end justify-between gap-4 flex-wrap">
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  {section.icon && <span className="text-2xl">{section.icon}</span>}
-                  <h2 className="text-2xl md:text-3xl font-bold tracking-tight">{section.title}</h2>
-                </div>
-                {section.description && (
-                  <p className="text-sm text-bone-dim max-w-[640px]">{section.description}</p>
-                )}
-              </div>
-              <Link
-                href={`/dashboard/prompts/${section.slug}`}
-                className="text-sm text-lime font-semibold hover:underline shrink-0"
-              >
-                {c.viewSection} →
-              </Link>
-            </div>
-
-            {section.categories.map((category) => (
-              <div key={category.id} className="space-y-3">
-                <h3 className="text-[11px] font-bold tracking-[0.18em] text-bone-mute uppercase">
-                  {category.title}
-                </h3>
-                {category.prompts.length === 0 ? (
-                  <p className="text-xs text-bone-mute">{c.empty}</p>
-                ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
-                    {category.prompts.map((p) => (
-                      <PromptCard key={p.id} prompt={p} copyLabel={c.copy} copiedLabel={c.copied} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </section>
-        ))
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+          {prompts.map((p) => (
+            <PromptCard key={p.id} prompt={p} copyLabel={c.copy} copiedLabel={c.copied} />
+          ))}
+        </div>
       )}
     </div>
   );

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { generateAction, type GenResult } from '@/lib/actions/generate';
 import Lightbox from './Lightbox';
 import WatermarkedResult from './WatermarkedResult';
+import GalleryPicker from './GalleryPicker';
 import { t, type Lang } from '@/lib/i18n';
 
 const ANON_KEY = 'goz_free_used';
@@ -13,17 +14,40 @@ type Kind = 'enhance' | 'undress' | 'faceswap' | 'edit' | 'video' | 'create';
 
 const TABS: { id: Kind; en: string; pt: string; es: string; icon: string }[] = [
   { id: 'create', en: 'Create', pt: 'Criar', es: 'Crear', icon: '🍌' },
-  { id: 'enhance', en: 'Enhance', pt: 'Enhance', es: 'Mejorar', icon: '✨' },
   { id: 'undress', en: 'Undress', pt: 'Undress', es: 'Undress', icon: '🔥' },
   { id: 'faceswap', en: 'Face Swap', pt: 'Face Swap', es: 'Face Swap', icon: '🎭' },
   { id: 'edit', en: 'Edit', pt: 'Editar', es: 'Editar', icon: '✏️' },
   { id: 'video', en: 'Video', pt: 'Vídeo', es: 'Video', icon: '🎬' },
 ];
 
-// SFW image models (Vertex AI / Nano Banana). Only shown on the `create` tab.
-const NANO_BANANA_OPTIONS: { id: string; label: string; hint: { en: string; pt: string; es: string } }[] = [
-  { id: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro', hint: { en: 'Highest quality', pt: 'Máxima qualidade', es: 'Máxima calidad' } },
-  { id: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2', hint: { en: 'Faster', pt: 'Mais rápido', es: 'Más rápido' } },
+// SFW image models. Only shown on the `create` tab.
+// `engine` selects which backend the server action routes to.
+const GPT_IMAGE_MODEL = 'gpt-image-2';
+const MODEL_OPTIONS: {
+  id: string;
+  icon: string;
+  engine: 'nano' | 'gpt';
+  label: string;
+  hint: { en: string; pt: string; es: string };
+}[] = [
+  { id: 'gemini-3-pro-image-preview', icon: '🍌', engine: 'nano', label: 'Nano Banana Pro', hint: { en: 'Highest quality', pt: 'Máxima qualidade', es: 'Máxima calidad' } },
+  { id: 'gemini-3.1-flash-image-preview', icon: '🍌', engine: 'nano', label: 'Nano Banana 2', hint: { en: 'Faster', pt: 'Mais rápido', es: 'Más rápido' } },
+  { id: GPT_IMAGE_MODEL, icon: '🎨', engine: 'gpt', label: 'GPT Image', hint: { en: 'OpenAI · sharp text', pt: 'OpenAI · texto nítido', es: 'OpenAI · texto nítido' } },
+];
+
+// GPT Image sizes (the only ones the GPT image models accept).
+const GPT_SIZE_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
+  { id: '1024x1024', label: { en: 'Square 1:1', pt: 'Quadrado 1:1', es: 'Cuadrado 1:1' } },
+  { id: '1024x1536', label: { en: 'Portrait 2:3', pt: 'Retrato 2:3', es: 'Retrato 2:3' } },
+  { id: '1536x1024', label: { en: 'Landscape 3:2', pt: 'Paisagem 3:2', es: 'Paisaje 3:2' } },
+  { id: '864x1536', label: { en: 'Story 9:16', pt: 'Story 9:16', es: 'Story 9:16' } },
+  { id: '1536x864', label: { en: 'Wide 16:9', pt: 'Wide 16:9', es: 'Wide 16:9' } },
+];
+
+const GPT_QUALITY_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
+  { id: 'low', label: { en: 'Low · fast', pt: 'Baixa · rápido', es: 'Baja · rápido' } },
+  { id: 'medium', label: { en: 'Medium', pt: 'Média', es: 'Media' } },
+  { id: 'high', label: { en: 'High · max', pt: 'Alta · máx', es: 'Alta · máx' } },
 ];
 
 // Aspect ratios accepted by the Gemini endpoint, with a friendly label.
@@ -57,15 +81,18 @@ export default function GenPanel({
   credits: number;
   isAnon?: boolean;
 }) {
-  const [kind, setKind] = useState<Kind>('enhance');
-  const [model, setModel] = useState<string>(NANO_BANANA_OPTIONS[0].id);
+  const [kind, setKind] = useState<Kind>('create');
+  const [model, setModel] = useState<string>(MODEL_OPTIONS[0].id);
   const [aspect, setAspect] = useState<string>('1:1');
   const [quality, setQuality] = useState<string>('2K');
+  const [gptSize, setGptSize] = useState<string>('1024x1024');
+  const [gptQuality, setGptQuality] = useState<string>('high');
   const [editPrompt, setEditPrompt] = useState('');
   const [reusedUrl, setReusedUrl] = useState<string | null>(null);
   const [result, setResult] = useState<GenResult | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [drag, setDrag] = useState(false);
+  const [showGallery, setShowGallery] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [freeUsed, setFreeUsed] = useState(false);
@@ -195,9 +222,13 @@ export default function GenPanel({
     };
   }, [imagePoll, result, router, lang]);
 
+  const isGpt = model === GPT_IMAGE_MODEL;
   const expectedFiles = kind === 'faceswap' ? 2 : 1;
   const cost = kind === 'video' ? 25 : 5;
-  const showUpload = !((kind === 'edit' || kind === 'video') && reusedUrl);
+  // Reusing a prior generation as input works for every single-image flow.
+  // Face Swap needs two distinct inputs, so it stays upload-only.
+  const canPickHistory = !isAnon && kind !== 'faceswap';
+  const showUpload = !(canPickHistory && reusedUrl);
   const blockedAnon = isAnon && (freeUsed || kind === 'video');
   const insufficient = !isAnon && credits < cost;
   const needsPrompt = kind === 'edit' || kind === 'video' || kind === 'create';
@@ -212,12 +243,20 @@ export default function GenPanel({
       ? promptOk // reference image optional
       : needsPrompt
       ? promptOk && (reusedUrl || files.length >= 1)
-      : files.length >= expectedFiles);
+      : reusedUrl || files.length >= expectedFiles);
 
   function handleFiles(list: FileList | File[]) {
     const arr = Array.from(list).filter((f) => f.type.startsWith('image/'));
     setFiles(arr.slice(0, expectedFiles));
+    setReusedUrl(null);
     setResult(null);
+  }
+
+  function pickFromHistory(url: string) {
+    setReusedUrl(url);
+    setFiles([]);
+    setResult(null);
+    setShowGallery(false);
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -226,12 +265,19 @@ export default function GenPanel({
     fd.set('kind', kind);
     if (kind === 'edit' || kind === 'video' || kind === 'create') {
       fd.set('prompt', editPrompt);
-      if (reusedUrl) fd.set('reused_url', reusedUrl);
     }
+    // A reused image (from history or a prior result) is a valid input for
+    // every single-image flow except Face Swap, which needs two inputs.
+    if (reusedUrl && kind !== 'faceswap') fd.set('reused_url', reusedUrl);
     if (kind === 'create') {
       fd.set('model', model);
-      fd.set('aspect_ratio', aspect);
-      fd.set('image_size', quality);
+      if (isGpt) {
+        fd.set('gpt_size', gptSize);
+        fd.set('gpt_quality', gptQuality);
+      } else {
+        fd.set('aspect_ratio', aspect);
+        fd.set('image_size', quality);
+      }
     }
     for (const f of files) fd.append('images', f);
     start(async () => {
@@ -341,7 +387,7 @@ export default function GenPanel({
                 {lang === 'pt' ? 'Modelo' : lang === 'es' ? 'Modelo' : 'Model'}
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {NANO_BANANA_OPTIONS.map((m) => {
+                {MODEL_OPTIONS.map((m) => {
                   const active = model === m.id;
                   return (
                     <button
@@ -355,7 +401,7 @@ export default function GenPanel({
                       }`}
                     >
                       <div className="flex items-center gap-2 font-bold text-sm">
-                        <span aria-hidden>🍌</span>
+                        <span aria-hidden>{m.icon}</span>
                         {m.label}
                       </div>
                       <div className="text-[11px] text-bone-dim mt-0.5">{m.hint[lang]}</div>
@@ -364,32 +410,61 @@ export default function GenPanel({
                 })}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mt-4">
-                <div>
-                  <label className="field-label">
-                    {lang === 'pt' ? 'Proporção' : lang === 'es' ? 'Proporción' : 'Aspect ratio'}
-                  </label>
-                  <select value={aspect} onChange={(e) => setAspect(e.target.value)} className="input">
-                    {ASPECT_OPTIONS.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.label[lang]}
-                      </option>
-                    ))}
-                  </select>
+              {isGpt ? (
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <div>
+                    <label className="field-label">
+                      {lang === 'pt' ? 'Tamanho' : lang === 'es' ? 'Tamaño' : 'Size'}
+                    </label>
+                    <select value={gptSize} onChange={(e) => setGptSize(e.target.value)} className="input">
+                      {GPT_SIZE_OPTIONS.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label[lang]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label">
+                      {lang === 'pt' ? 'Qualidade' : lang === 'es' ? 'Calidad' : 'Quality'}
+                    </label>
+                    <select value={gptQuality} onChange={(e) => setGptQuality(e.target.value)} className="input">
+                      {GPT_QUALITY_OPTIONS.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.label[lang]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="field-label">
-                    {lang === 'pt' ? 'Qualidade' : lang === 'es' ? 'Calidad' : 'Quality'}
-                  </label>
-                  <select value={quality} onChange={(e) => setQuality(e.target.value)} className="input">
-                    {QUALITY_OPTIONS.map((q) => (
-                      <option key={q.id} value={q.id}>
-                        {q.label[lang]}
-                      </option>
-                    ))}
-                  </select>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <div>
+                    <label className="field-label">
+                      {lang === 'pt' ? 'Proporção' : lang === 'es' ? 'Proporción' : 'Aspect ratio'}
+                    </label>
+                    <select value={aspect} onChange={(e) => setAspect(e.target.value)} className="input">
+                      {ASPECT_OPTIONS.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label[lang]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label">
+                      {lang === 'pt' ? 'Qualidade' : lang === 'es' ? 'Calidad' : 'Quality'}
+                    </label>
+                    <select value={quality} onChange={(e) => setQuality(e.target.value)} className="input">
+                      {QUALITY_OPTIONS.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.label[lang]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -444,6 +519,53 @@ export default function GenPanel({
                   </div>
                 )}
               </div>
+
+              {canPickHistory && (
+                <button
+                  type="button"
+                  onClick={() => setShowGallery(true)}
+                  className="mt-3 w-full rounded-xl border border-white/10 bg-ink-900 hover:border-lime hover:bg-lime/5 transition-colors px-4 py-3 text-sm font-semibold text-bone flex items-center justify-center gap-2"
+                >
+                  <span aria-hidden>🗂️</span>
+                  {t('pickFromHistory', lang)}
+                </button>
+              )}
+            </div>
+          )}
+
+          {!showUpload && reusedUrl && (
+            <div>
+              <label className="field-label">{uploadHint}</label>
+              <div className="relative rounded-2xl border border-lime/40 bg-lime/5 p-4 flex items-center gap-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={reusedUrl}
+                  alt=""
+                  className="w-20 h-20 object-cover rounded-xl border border-white/10 shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-lime flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-lime" />
+                    {t('usingFromHistory', lang)}
+                  </div>
+                  <div className="mt-2 flex gap-4 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setShowGallery(true)}
+                      className="text-lime font-semibold hover:underline"
+                    >
+                      {t('change', lang)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReusedUrl(null)}
+                      className="text-bone-dim font-semibold hover:underline"
+                    >
+                      {t('remove', lang)}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -489,15 +611,6 @@ export default function GenPanel({
                 }
                 className="input resize-none"
               />
-              {reusedUrl && (
-                <p className="text-xs text-bone-dim mt-2 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-lime" />
-                  {t('reusing', lang)} ·{' '}
-                  <button type="button" className="text-lime font-semibold hover:underline" onClick={() => setReusedUrl(null)}>
-                    {t('uploadNew', lang)}
-                  </button>
-                </p>
-              )}
             </div>
           )}
 
@@ -595,7 +708,7 @@ export default function GenPanel({
 
           <div className="space-y-3.5 text-sm">
             <Row label={lang === 'pt' ? 'Motor' : lang === 'es' ? 'Motor' : 'Engine'} value={labelFor(TABS.find((x) => x.id === kind)!, lang)} />
-            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${reusedUrl && kind === 'edit' ? 1 : files.length}/${expectedFiles}`} />
+            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${reusedUrl && kind !== 'faceswap' ? 1 : files.length}/${expectedFiles}`} />
             {isAnon ? (
               <>
                 <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value="FREE" accent />
@@ -706,6 +819,9 @@ export default function GenPanel({
       </form>
 
       <Lightbox src={open} onClose={() => setOpen(null)} />
+      {showGallery && (
+        <GalleryPicker lang={lang} onPick={pickFromHistory} onClose={() => setShowGallery(false)} />
+      )}
     </section>
   );
 }

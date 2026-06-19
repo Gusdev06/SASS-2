@@ -13,6 +13,7 @@ import {
   IMAGE_SIZES,
   type NanoBananaOptions,
 } from '@/lib/vertex-image';
+import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/gpt-image';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration } from '@/lib/storage';
 import {
@@ -74,6 +75,21 @@ const NANO_BANANA_VALUES = new Set<string>(Object.values(NANO_BANANA_MODELS));
 const ASPECT_VALUES = new Set<string>(ASPECT_RATIOS);
 const SIZE_VALUES = new Set<string>(IMAGE_SIZES);
 
+/** GPT Image (OpenAI) — selectable on the `create` tab. Model is fixed. */
+const GPT_IMAGE_MODEL = 'gpt-image-2';
+const GPT_SIZE_VALUES = new Set<string>([
+  '1024x1024',
+  '1536x1024',
+  '1024x1536',
+  '864x1536',
+  '1536x864',
+]);
+const GPT_QUALITY_VALUES = new Set<string>(['low', 'medium', 'high']);
+
+type CreateOpts =
+  | { engine: 'nano'; nano: NanoBananaOptions }
+  | { engine: 'gpt'; gpt: GptImageOptions };
+
 export type GenResult =
   | { ok: true; outputUrl: string; remaining: number; watermarked?: boolean }
   | { ok: true; isVideo: true; runId: string; remaining: number }
@@ -88,16 +104,20 @@ function pickPrompt(kind: Kind, customPrompt: string | null): string {
 }
 
 /**
- * Picks the image engine. The SFW `create` tab uses the Nano Banana models
- * (Vertex AI / Gemini); every other image flow stays on Replicate (Seedream).
+ * Picks the image engine. The SFW `create` tab can use the Nano Banana models
+ * (Vertex AI / Gemini) or GPT Image (OpenAI); every other image flow stays on
+ * Replicate (Seedream).
  */
 function runImageEngine(
   kind: Kind,
   prompt: string,
   inputUrls: string[],
-  opts?: NanoBananaOptions
+  opts?: CreateOpts
 ): Promise<string> {
-  if (kind === 'create') return generateNanoBanana(prompt, inputUrls, opts);
+  if (kind === 'create') {
+    if (opts?.engine === 'gpt') return generateGptImage(prompt, inputUrls, opts.gpt);
+    return generateNanoBanana(prompt, inputUrls, opts?.engine === 'nano' ? opts.nano : undefined);
+  }
   return generateImage(prompt, inputUrls);
 }
 
@@ -131,16 +151,35 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
 
   // Model / quality / aspect-ratio — only honored for the SFW `create` tab.
   const rawModel = formData.get('model') ? String(formData.get('model')) : null;
-  const rawAspect = formData.get('aspect_ratio') ? String(formData.get('aspect_ratio')) : null;
-  const rawSize = formData.get('image_size') ? String(formData.get('image_size')) : null;
-  const createOpts: NanoBananaOptions | undefined =
-    kind === 'create'
-      ? {
+  let createOpts: CreateOpts | undefined;
+  if (kind === 'create') {
+    if (rawModel === GPT_IMAGE_MODEL) {
+      const rawGptSize = formData.get('gpt_size') ? String(formData.get('gpt_size')) : null;
+      const rawGptQuality = formData.get('gpt_quality') ? String(formData.get('gpt_quality')) : null;
+      createOpts = {
+        engine: 'gpt',
+        gpt: {
+          size: rawGptSize && GPT_SIZE_VALUES.has(rawGptSize)
+            ? (rawGptSize as GptImageOptions['size'])
+            : undefined,
+          quality: rawGptQuality && GPT_QUALITY_VALUES.has(rawGptQuality)
+            ? (rawGptQuality as GptImageOptions['quality'])
+            : undefined,
+        },
+      };
+    } else {
+      const rawAspect = formData.get('aspect_ratio') ? String(formData.get('aspect_ratio')) : null;
+      const rawSize = formData.get('image_size') ? String(formData.get('image_size')) : null;
+      createOpts = {
+        engine: 'nano',
+        nano: {
           model: rawModel && NANO_BANANA_VALUES.has(rawModel) ? rawModel : undefined,
           aspectRatio: rawAspect && ASPECT_VALUES.has(rawAspect) ? rawAspect : undefined,
           imageSize: rawSize && SIZE_VALUES.has(rawSize) ? rawSize : undefined,
-        }
-      : undefined;
+        },
+      };
+    }
+  }
 
   if (!prompt) {
     return { ok: false, error: 'Digite um prompt.' };

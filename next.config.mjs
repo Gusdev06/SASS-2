@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   serverExternalPackages: ['better-sqlite3'],
+  experimental: {
+    // Image uploads to the Imagem → Prompt server action exceed the 1MB default.
+    serverActions: { bodySizeLimit: '25mb' },
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'replicate.delivery' },

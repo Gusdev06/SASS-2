@@ -73,10 +73,41 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- prompts: biblioteca de prompts (migrada do antigo src/data/prompts.json).
+-- A árvore sections → categories → prompts é reconstruída a partir destas linhas
+-- planas; a ordem é controlada por sort_order (global, crescente).
+create table if not exists public.prompts (
+  id             text primary key default gen_random_uuid()::text,
+  section_id     text not null,
+  section_slug   text not null,
+  section_title  text not null,
+  section_icon   text,
+  category_id    text not null,
+  category_title text not null,
+  title          text not null,
+  type           text,
+  prompt         text not null,
+  image_url      text,
+  thumbnail_url  text,
+  ai_model       text,
+  sort_order     integer not null default 0,
+  active         boolean not null default true,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index if not exists prompts_section_idx on public.prompts(section_slug, sort_order);
+create index if not exists prompts_order_idx on public.prompts(sort_order);
+
 -- RLS
 alter table public.profiles enable row level security;
 alter table public.generations enable row level security;
 alter table public.processed_orders enable row level security;
+alter table public.prompts enable row level security;
+
+-- Leitura pública apenas dos prompts ativos. Admin/seed mutam via service-role.
+drop policy if exists "prompts_select_active" on public.prompts;
+create policy "prompts_select_active" on public.prompts
+  for select using (active = true);
 
 drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles

@@ -15,7 +15,7 @@ create extension if not exists pg_net;
 -- Reexecutável: atualiza se já existir.
 do $$
 declare
-  v_secret text := '09ac855f0f311b742b9ea198ba1b28c89c3c61d7fc6b0dd16d4b7a70c4f846c9';
+  v_secret text := '09ac855f0f311b742b9ea198ba1b28c89c3c61d7fc6b0dd16d4b7a70c4f846c9s';
 begin
   if exists (select 1 from vault.secrets where name = 'cron_secret') then
     perform vault.update_secret(

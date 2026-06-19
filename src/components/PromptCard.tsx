@@ -24,7 +24,12 @@ export default function PromptCard({
   const [copied, setCopied] = useState(false);
 
   const thumb = prompt.thumbnailUrl ?? prompt.imageUrl;
-  const typeLabel = TYPE_LABEL[prompt.type] ?? prompt.type.toUpperCase();
+  // `type` may hold several comma-separated tags (e.g. "text_to_image,image_to_image").
+  const typeLabels = prompt.type
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => TYPE_LABEL[t] ?? t.toUpperCase());
 
   async function copy() {
     try {
@@ -55,20 +60,24 @@ export default function PromptCard({
         ) : (
           <div className="w-full h-full flex items-center justify-center text-bone-mute text-xs">no preview</div>
         )}
-        <span className="absolute top-2 left-2 text-[9px] font-bold tracking-widest bg-ink-900/80 text-bone px-2 py-1 rounded-md border border-white/10">
-          {typeLabel}
-        </span>
+        <div className="absolute top-2 left-2 flex flex-col items-start gap-1 max-w-[55%]">
+          {typeLabels.map((label) => (
+            <span
+              key={label}
+              className="text-[9px] font-bold tracking-widest bg-ink-900/80 text-bone px-2 py-1 rounded-md border border-white/10 whitespace-nowrap"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
         {prompt.aiModel && (
-          <span className="absolute top-2 right-2 text-[9px] font-bold tracking-widest bg-lime/15 text-lime px-2 py-1 rounded-md border border-lime/30">
+          <span className="absolute top-2 right-2 max-w-[42%] text-[9px] font-bold tracking-wide bg-lime/15 text-lime px-2 py-1 rounded-md border border-lime/30 break-words text-right">
             {prompt.aiModel}
           </span>
         )}
       </div>
       <div className="p-3 flex-1 flex flex-col gap-2">
-        <h3 className="text-sm font-semibold text-bone leading-snug line-clamp-2 group-hover:text-lime transition-colors">
-          {prompt.title}
-        </h3>
-        <p className="text-[11px] text-bone-mute line-clamp-2 leading-relaxed">{prompt.prompt}</p>
+        <p className="text-[11px] text-bone-mute line-clamp-3 leading-relaxed">{prompt.prompt}</p>
         <span
           className={`mt-auto text-[10px] font-bold tracking-widest uppercase transition-colors ${
             copied ? 'text-lime' : 'text-bone-mute group-hover:text-bone'

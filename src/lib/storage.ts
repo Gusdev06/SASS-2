@@ -15,15 +15,27 @@ export async function uploadToSupabase(
   const res = await fetch(remoteUrl);
   if (!res.ok) throw new Error('storage_fetch_failed');
   const ct = res.headers.get('content-type');
-  const ext = extFromContentType(ct);
   const bytes = new Uint8Array(await res.arrayBuffer());
+  return uploadBufferToSupabase(bytes, pathHint, ct ?? 'image/jpeg');
+}
 
+/**
+ * Uploads a raw image/video buffer (e.g. a re-encoded upload) to the storage
+ * bucket and returns the permanent public URL. Use this when the bytes are
+ * already in hand and there is no remote URL to fetch from.
+ */
+export async function uploadBufferToSupabase(
+  bytes: Uint8Array,
+  pathHint = 'image',
+  contentType = 'image/jpeg'
+): Promise<string> {
+  const ext = extFromContentType(contentType);
   const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'generations';
   const key = `${pathHint}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
   const supabase = createServiceClient();
   const { error } = await supabase.storage.from(bucket).upload(key, bytes, {
-    contentType: ct ?? 'image/jpeg',
+    contentType,
     upsert: false,
   });
   if (error) throw new Error(`storage_upload_failed_${error.message}`);
