@@ -1,5 +1,20 @@
 export const CREDITS_PER_IMAGE = 10;
+// Custo-base do vídeo (2s). Durações maiores escalam linearmente — ver videoCost().
 export const CREDITS_PER_VIDEO = 25;
+
+// Vídeo: a duração escolhida (em segundos) vira o nº de frames do nó
+// WanImageToVideo (length = segundos × frame_rate). O frame_rate é fixo em 16
+// no nó VHS_VideoCombine, então 1s = 16 frames.
+export const VIDEO_FRAME_RATE = 16;
+export const VIDEO_DURATIONS = [2, 5, 10] as const;
+export type VideoDuration = (typeof VIDEO_DURATIONS)[number];
+export const DEFAULT_VIDEO_DURATION: VideoDuration = 2;
+
+/** Nº de frames (`length` do WanImageToVideo) para uma duração em segundos. */
+export const videoFrames = (seconds: number) => Math.round(seconds * VIDEO_FRAME_RATE);
+
+/** Créditos de um vídeo — escalam linearmente com a duração (2s = base). */
+export const videoCost = (seconds: number) => Math.round((CREDITS_PER_VIDEO * seconds) / 2);
 
 export const ENHANCE_PROMPT =
   'Deixa essa mulher completamente pelada, mantenha o rosto original e o corpo, os seios e a bunda devem ficar bem avantajados e sedutores, mantenha a iluminação e o fundo original.';

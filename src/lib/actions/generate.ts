@@ -24,10 +24,14 @@ import { persistGeneration } from '@/lib/storage';
 import { consumeFreeQuota, refundFreeQuota, type FreeBucket } from '@/lib/free-quota';
 import {
   CREDITS_PER_IMAGE,
-  CREDITS_PER_VIDEO,
   ENHANCE_PROMPT,
   UNDRESS_PROMPT,
   FACESWAP_PROMPT,
+  VIDEO_DURATIONS,
+  DEFAULT_VIDEO_DURATION,
+  videoCost,
+  videoFrames,
+  type VideoDuration,
 } from '@/lib/prompts';
 
 async function watermarkRemote(url: string): Promise<string> {
@@ -189,6 +193,12 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const reusedUrl = formData.get('reused_url') ? String(formData.get('reused_url')) : null;
   const prompt = pickPrompt(kind, customPrompt);
 
+  // Duração do vídeo (segundos) -> nº de frames + custo. Só vale no tab `video`.
+  const rawDuration = formData.get('duration') ? Number(formData.get('duration')) : NaN;
+  const videoDuration: VideoDuration = (VIDEO_DURATIONS as readonly number[]).includes(rawDuration)
+    ? (rawDuration as VideoDuration)
+    : DEFAULT_VIDEO_DURATION;
+
   // Model / quality / aspect-ratio — only honored for the SFW `create` tab.
   const rawModel = formData.get('model') ? String(formData.get('model')) : null;
   let createOpts: CreateOpts | undefined;
@@ -306,7 +316,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const freeBucket = freeBucketFor(kind, createOpts);
   const usedFree = freeBucket ? await consumeFreeQuota(user.id, freeBucket) : false;
 
-  const cost = usedFree ? 0 : kind === 'video' ? CREDITS_PER_VIDEO : CREDITS_PER_IMAGE;
+  const cost = usedFree ? 0 : kind === 'video' ? videoCost(videoDuration) : CREDITS_PER_IMAGE;
   if (!usedFree) {
     const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
       p_user_id: user.id,
@@ -366,7 +376,11 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   try {
     if (kind === 'video') {
       if (!videoInputUrl) throw new Error('Imagem de entrada ausente.');
-      const runId = await queueRun({ input_image: videoInputUrl, prompt });
+      const runId = await queueRun({
+        input_image: videoInputUrl,
+        prompt,
+        length: videoFrames(videoDuration),
+      });
       await service
         .from('generations')
         .update({ input_urls: [`run:${runId}`] })

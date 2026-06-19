@@ -8,7 +8,12 @@ import WatermarkedResult from './WatermarkedResult';
 import GalleryPicker from './GalleryPicker';
 import { t, type Lang } from '@/lib/i18n';
 import { readRenderUrl } from '@/lib/dnd';
-import { CREDITS_PER_IMAGE, CREDITS_PER_VIDEO } from '@/lib/prompts';
+import {
+  CREDITS_PER_IMAGE,
+  VIDEO_DURATIONS,
+  DEFAULT_VIDEO_DURATION,
+  videoCost,
+} from '@/lib/prompts';
 import type { FreeBucket, FreeQuotaState } from '@/lib/free-quota';
 
 const ANON_KEY = 'goz_free_used';
@@ -394,6 +399,8 @@ export default function GenPanel({
   const [gptQuality, setGptQuality] = useState<string>('high');
   const [nsfwAspect, setNsfwAspect] = useState<string>('9:16');
   const [nsfwSize, setNsfwSize] = useState<string>('2K');
+  // Duração do vídeo em segundos (vira nº de frames + custo no backend).
+  const [duration, setDuration] = useState<number>(DEFAULT_VIDEO_DURATION);
   const [editPrompt, setEditPrompt] = useState('');
   const [reusedUrl, setReusedUrl] = useState<string | null>(null);
   const [result, setResult] = useState<GenResult | null>(null);
@@ -416,6 +423,14 @@ export default function GenPanel({
     (id: string) => setJobs((prev) => prev.filter((j) => j.id !== id)),
     []
   );
+  // Adiciona um job só se ainda não estiver na lista. Evita card duplicado
+  // quando o `router.refresh()` do submit faz o servidor reenviar `resume`
+  // para uma geração que já estamos acompanhando.
+  const addJob = useCallback(
+    (job: Job) =>
+      setJobs((prev) => (prev.some((j) => j.id === job.id) ? prev : [job, ...prev])),
+    []
+  );
 
   useEffect(() => {
     if (isAnon && typeof window !== 'undefined') {
@@ -430,11 +445,11 @@ export default function GenPanel({
     if (resumedRef.current || !resume) return;
     resumedRef.current = true;
     if (resume.kind === 'video') {
-      setJobs((prev) => [{ id: resume.runId, type: 'video', runId: resume.runId, remaining: credits }, ...prev]);
+      addJob({ id: resume.runId, type: 'video', runId: resume.runId, remaining: credits });
     } else {
-      setJobs((prev) => [{ id: resume.genId, type: 'image', genId: resume.genId, remaining: credits }, ...prev]);
+      addJob({ id: resume.genId, type: 'image', genId: resume.genId, remaining: credits });
     }
-  }, [resume, credits]);
+  }, [resume, credits, addJob]);
 
   const engine = (MODEL_OPTIONS.find((m) => m.id === model) ?? MODEL_OPTIONS[0]).engine;
   const isGpt = engine === 'gpt';
@@ -442,7 +457,7 @@ export default function GenPanel({
   // `create` aceita várias imagens de referência (todas opcionais); os demais
   // fluxos têm contagem fixa (faceswap = 2, resto = 1).
   const maxFiles = kind === 'create' ? 8 : expectedFiles;
-  const cost = kind === 'video' ? CREDITS_PER_VIDEO : CREDITS_PER_IMAGE;
+  const cost = kind === 'video' ? videoCost(duration) : CREDITS_PER_IMAGE;
 
   // Cota grátis diária (compradores do curso). Só vale no tab `create` p/ os
   // modelos Nano/Replicate. Esgotou -> a geração passa a custar créditos.
@@ -515,6 +530,7 @@ export default function GenPanel({
     if (kind === 'edit' || kind === 'video' || kind === 'create') {
       fd.set('prompt', editPrompt);
     }
+    if (kind === 'video') fd.set('duration', String(duration));
     // A reused image (from history or a prior result) is a valid input for
     // every single-image flow except Face Swap, which needs two inputs.
     if (reusedUrl && kind !== 'faceswap') fd.set('reused_url', reusedUrl);
@@ -542,13 +558,13 @@ export default function GenPanel({
     start(async () => {
       const r = await generateAction(fd);
       if (r.ok && 'isVideo' in r && r.isVideo) {
-        setJobs((prev) => [{ id: r.runId, type: 'video', runId: r.runId, remaining: r.remaining }, ...prev]);
+        addJob({ id: r.runId, type: 'video', runId: r.runId, remaining: r.remaining });
         setFiles([]);
         router.refresh();
         return;
       }
       if (r.ok && 'isAsync' in r && r.isAsync) {
-        setJobs((prev) => [{ id: r.genId, type: 'image', genId: r.genId, remaining: r.remaining }, ...prev]);
+        addJob({ id: r.genId, type: 'image', genId: r.genId, remaining: r.remaining });
         setFiles([]);
         setFaceFile(null);
         setTargetFile(null);
@@ -1003,6 +1019,32 @@ export default function GenPanel({
                 }
                 className="input resize-none"
               />
+            </div>
+          )}
+
+          {kind === 'video' && (
+            <div>
+              <label className="field-label">
+                {lang === 'pt' ? 'Duração' : lang === 'es' ? 'Duración' : 'Duration'}
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {VIDEO_DURATIONS.map((s) => {
+                  const active = duration === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setDuration(s)}
+                      className={`rounded-xl border px-4 py-3 text-center transition-colors ${
+                        active ? 'border-lime bg-lime/10' : 'border-white/10 bg-ink-900 hover:border-white/30'
+                      }`}
+                    >
+                      <div className="font-bold text-sm">{s}s</div>
+                      <div className="text-[11px] text-bone-dim mt-0.5">{videoCost(s)} cr</div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 
