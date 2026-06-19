@@ -1,0 +1,255 @@
+-- ============================================================================
+-- Cota grátis diária para COMPRADORES DO CURSO + liberação por e-mail
+-- ----------------------------------------------------------------------------
+-- Modelo de negócio:
+--   * Quem compra o curso (webhook PerfectPay) ganha uma cota grátis DIÁRIA:
+--       - 5 imagens Nano Banana Pro   (bucket 'nano_pro')
+--       - 5 imagens Nano Banana 2     (bucket 'nano_v2')
+--       - 2 imagens Replicate/NSFW    (bucket 'replicate')
+--   * Janela ÚNICA por usuário: a 1ª geração grátis do dia abre a janela;
+--     24h depois TUDO recarrega junto. O timer mostrado é window_start + 24h.
+--   * Esgotou a cota -> a geração passa a custar créditos (não bloqueia).
+--   * Cadastro normal (sem comprar o curso) NÃO tem cota grátis.
+--
+-- A liberação é por E-MAIL (course_entitlements). Funciona mesmo se o comprador
+-- ainda não criou a conta: quando ele se cadastrar com o mesmo e-mail, a cota
+-- passa a valer automaticamente (is_course_entitled cruza profiles.email).
+--
+-- Rode este arquivo no SQL Editor do Supabase (ou via `supabase db push`).
+-- É reexecutável (idempotente).
+-- ============================================================================
+
+-- 1) Tabelas -----------------------------------------------------------------
+
+-- E-mails liberados (vindos do webhook do curso). Chave = e-mail normalizado.
+create table if not exists public.course_entitlements (
+  email       text primary key,
+  source      text,
+  order_id    text,
+  raw_payload jsonb,
+  granted_at  timestamptz not null default now()
+);
+
+-- Estado da cota grátis por usuário (1 janela diária; contadores por bucket).
+create table if not exists public.free_quota (
+  user_id      uuid primary key references auth.users(id) on delete cascade,
+  window_start timestamptz,
+  nano_pro     integer not null default 0,
+  nano_v2      integer not null default 0,
+  replicate    integer not null default 0,
+  updated_at   timestamptz not null default now()
+);
+
+-- RLS: somente service-role (server actions / webhooks) mutam e leem.
+-- Os clientes acessam a cota apenas via RPC SECURITY DEFINER abaixo.
+alter table public.course_entitlements enable row level security;
+alter table public.free_quota enable row level security;
+
+-- 2) Entitlement -------------------------------------------------------------
+
+-- True se o e-mail do usuário consta na lista de compradores do curso.
+create or replace function public.is_course_entitled(p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+      from public.profiles p
+      join public.course_entitlements c on c.email = lower(p.email)
+     where p.user_id = p_user_id
+  );
+$$;
+
+-- Libera (ou re-libera) um e-mail. Chamado pelo webhook do curso.
+create or replace function public.grant_course_entitlement(
+  p_email   text,
+  p_source  text default null,
+  p_order_id text default null,
+  p_payload jsonb default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_email is null or btrim(p_email) = '' then
+    return;
+  end if;
+  insert into public.course_entitlements (email, source, order_id, raw_payload)
+  values (lower(btrim(p_email)), p_source, p_order_id, p_payload)
+  on conflict (email) do update
+     set source      = excluded.source,
+         order_id    = excluded.order_id,
+         raw_payload = excluded.raw_payload,
+         granted_at  = now();
+end;
+$$;
+
+-- 3) Limites (fonte da verdade) ---------------------------------------------
+
+create or replace function public.free_quota_limit(p_bucket text)
+returns integer
+language sql
+immutable
+as $$
+  select case p_bucket
+    when 'nano_pro'  then 5
+    when 'nano_v2'   then 5
+    when 'replicate' then 2
+    else -1
+  end;
+$$;
+
+-- 4) Consumir cota (atômico) -------------------------------------------------
+-- Retorna jsonb: { allowed, reason?, bucket, used, limit, remaining, reset_at }
+-- - Gate de entitlement embutido (só comprador do curso consome).
+-- - Reseta a janela se expirou (>=24h) ou nunca abriu.
+create or replace function public.consume_free_quota(p_user_id uuid, p_bucket text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_limit int;
+  v_used  int;
+  v_now   timestamptz := now();
+  q       public.free_quota%rowtype;
+  v_reset timestamptz;
+begin
+  if not public.is_course_entitled(p_user_id) then
+    return jsonb_build_object('allowed', false, 'reason', 'not_entitled');
+  end if;
+
+  v_limit := public.free_quota_limit(p_bucket);
+  if v_limit < 0 then
+    return jsonb_build_object('allowed', false, 'reason', 'invalid_bucket');
+  end if;
+
+  insert into public.free_quota (user_id) values (p_user_id)
+    on conflict (user_id) do nothing;
+
+  select * into q from public.free_quota where user_id = p_user_id for update;
+
+  -- Janela expirada ou inexistente -> reseta contadores e reabre.
+  if q.window_start is null or v_now - q.window_start >= interval '24 hours' then
+    q.window_start := v_now;
+    q.nano_pro := 0;
+    q.nano_v2 := 0;
+    q.replicate := 0;
+  end if;
+
+  v_reset := q.window_start + interval '24 hours';
+  v_used := case p_bucket
+    when 'nano_pro'  then q.nano_pro
+    when 'nano_v2'   then q.nano_v2
+    when 'replicate' then q.replicate
+  end;
+
+  if v_used >= v_limit then
+    -- Persiste eventual reset (caso a janela tivesse acabado de virar).
+    update public.free_quota
+       set window_start = q.window_start,
+           nano_pro = q.nano_pro, nano_v2 = q.nano_v2, replicate = q.replicate,
+           updated_at = v_now
+     where user_id = p_user_id;
+    return jsonb_build_object(
+      'allowed', false, 'reason', 'exhausted', 'bucket', p_bucket,
+      'used', v_used, 'limit', v_limit, 'remaining', 0, 'reset_at', v_reset
+    );
+  end if;
+
+  if p_bucket = 'nano_pro' then
+    q.nano_pro := q.nano_pro + 1;
+  elsif p_bucket = 'nano_v2' then
+    q.nano_v2 := q.nano_v2 + 1;
+  else
+    q.replicate := q.replicate + 1;
+  end if;
+
+  update public.free_quota
+     set window_start = q.window_start,
+         nano_pro = q.nano_pro, nano_v2 = q.nano_v2, replicate = q.replicate,
+         updated_at = v_now
+   where user_id = p_user_id;
+
+  v_used := v_used + 1;
+  return jsonb_build_object(
+    'allowed', true, 'bucket', p_bucket,
+    'used', v_used, 'limit', v_limit, 'remaining', v_limit - v_used,
+    'reset_at', v_reset
+  );
+end;
+$$;
+
+-- 5) Devolver cota (em caso de falha na geração) -----------------------------
+create or replace function public.refund_free_quota(p_user_id uuid, p_bucket text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamptz := now();
+  q     public.free_quota%rowtype;
+begin
+  select * into q from public.free_quota where user_id = p_user_id for update;
+  if not found then return; end if;
+  -- Só devolve dentro da janela ativa (senão já resetou de qualquer forma).
+  if q.window_start is null or v_now - q.window_start >= interval '24 hours' then
+    return;
+  end if;
+  if p_bucket = 'nano_pro' then
+    update public.free_quota set nano_pro = greatest(0, nano_pro - 1), updated_at = v_now
+     where user_id = p_user_id;
+  elsif p_bucket = 'nano_v2' then
+    update public.free_quota set nano_v2 = greatest(0, nano_v2 - 1), updated_at = v_now
+     where user_id = p_user_id;
+  elsif p_bucket = 'replicate' then
+    update public.free_quota set replicate = greatest(0, replicate - 1), updated_at = v_now
+     where user_id = p_user_id;
+  end if;
+end;
+$$;
+
+-- 6) Ler cota (somente leitura, p/ UI) --------------------------------------
+-- Retorna { entitled:false } OU
+--         { entitled:true, reset_at, buckets:{ nano_pro:{used,limit,remaining}, ... } }
+create or replace function public.get_free_quota(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+stable
+as $$
+declare
+  q       public.free_quota%rowtype;
+  v_now   timestamptz := now();
+  pro int := 0; v2 int := 0; rep int := 0;
+  v_reset timestamptz := null;
+begin
+  if not public.is_course_entitled(p_user_id) then
+    return jsonb_build_object('entitled', false);
+  end if;
+
+  select * into q from public.free_quota where user_id = p_user_id;
+  if found and q.window_start is not null and v_now - q.window_start < interval '24 hours' then
+    pro := q.nano_pro; v2 := q.nano_v2; rep := q.replicate;
+    v_reset := q.window_start + interval '24 hours';
+  end if;
+
+  return jsonb_build_object(
+    'entitled', true,
+    'reset_at', v_reset,
+    'buckets', jsonb_build_object(
+      'nano_pro',  jsonb_build_object('used', pro, 'limit', 5, 'remaining', greatest(0, 5 - pro)),
+      'nano_v2',   jsonb_build_object('used', v2,  'limit', 5, 'remaining', greatest(0, 5 - v2)),
+      'replicate', jsonb_build_object('used', rep, 'limit', 2, 'remaining', greatest(0, 2 - rep))
+    )
+  );
+end;
+$$;

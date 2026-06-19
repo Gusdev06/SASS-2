@@ -57,6 +57,35 @@ model ProcessedOrder {
   @@schema("public")
 }
 
+/// E-mails liberados pela compra do curso (webhook PerfectPay). A cota grátis
+/// diária vale para todo usuário cujo profiles.email conste aqui.
+model CourseEntitlement {
+  email      String   @id
+  source     String?
+  orderId    String?  @map("order_id")
+  rawPayload Json?    @map("raw_payload")
+  grantedAt  DateTime @default(now()) @map("granted_at") @db.Timestamptz(6)
+
+  @@map("course_entitlements")
+  @@schema("public")
+}
+
+/// Estado da cota grátis diária por usuário (janela única de 24h + contadores
+/// por bucket). Toda a lógica atômica vive nas RPCs de supabase/free-quota.sql.
+model FreeQuota {
+  userId      String    @id @map("user_id") @db.Uuid
+  windowStart DateTime? @map("window_start") @db.Timestamptz(6)
+  nanoPro     Int       @default(0) @map("nano_pro")
+  nanoV2      Int       @default(0) @map("nano_v2")
+  replicate   Int       @default(0)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("free_quota")
+  @@schema("public")
+}
+
 /// Referência somente-leitura à tabela auth.users gerenciada pelo Supabase Auth.
 model AuthUser {
   id    String  @id @db.Uuid
@@ -65,6 +94,7 @@ model AuthUser {
   profile         Profile?
   generations     Generation[]
   processedOrders ProcessedOrder[]
+  freeQuota       FreeQuota?
 
   @@map("users")
   @@schema("auth")

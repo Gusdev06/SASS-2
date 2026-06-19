@@ -16,6 +16,7 @@ import {
 import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/gpt-image';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration } from '@/lib/storage';
+import { consumeFreeQuota, refundFreeQuota, type FreeBucket } from '@/lib/free-quota';
 import {
   CREDITS_PER_IMAGE,
   CREDITS_PER_VIDEO,
@@ -123,6 +124,21 @@ function runImageEngine(
     return generateNanoBanana(prompt, inputUrls, opts?.engine === 'nano' ? opts.nano : undefined);
   }
   return generateImage(prompt, inputUrls);
+}
+
+/**
+ * Mapeia a geração do tab `create` para o bucket de cota grátis diária.
+ * Nano Banana Pro -> nano_pro · Nano Banana 2 -> nano_v2 · Replicate/NSFW ->
+ * replicate. GPT Image não tem cota grátis (sempre créditos). Os demais tabs
+ * (undress/faceswap/enhance/edit/video) também não — só créditos.
+ */
+function freeBucketFor(kind: Kind, opts?: CreateOpts): FreeBucket | null {
+  if (kind !== 'create' || !opts) return null;
+  if (opts.engine === 'nano') {
+    return opts.nano.model === NANO_BANANA_MODELS.v2 ? 'nano_v2' : 'nano_pro';
+  }
+  if (opts.engine === 'replicate') return 'replicate';
+  return null; // gpt
 }
 
 async function filesToDataUris(files: File[]): Promise<string[]> {
@@ -245,13 +261,22 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   }
 
   const service = createServiceClient();
-  const cost = kind === 'video' ? CREDITS_PER_VIDEO : CREDITS_PER_IMAGE;
-  const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
-    p_user_id: user.id,
-    p_amount: cost,
-  });
-  if (debitErr) return { ok: false, error: debitErr.message };
-  if (!debited) return { ok: false, error: 'Créditos insuficientes.' };
+
+  // Cota grátis diária (compradores do curso) cobre as gerações do tab `create`
+  // antes de tocar nos créditos. Esgotou a cota -> cai para créditos. Os demais
+  // flows nunca têm bucket, então seguem direto no débito.
+  const freeBucket = freeBucketFor(kind, createOpts);
+  const usedFree = freeBucket ? await consumeFreeQuota(user.id, freeBucket) : false;
+
+  const cost = usedFree ? 0 : kind === 'video' ? CREDITS_PER_VIDEO : CREDITS_PER_IMAGE;
+  if (!usedFree) {
+    const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
+      p_user_id: user.id,
+      p_amount: cost,
+    });
+    if (debitErr) return { ok: false, error: debitErr.message };
+    if (!debited) return { ok: false, error: 'Créditos insuficientes.' };
+  }
 
   // Insert pending row up-front so every debit has an auditable counterpart.
   const { data: genRow, error: insertErr } = await service
@@ -288,6 +313,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       } catch (err) {
         const reason = err instanceof Error ? err.message : 'Falha na geração.';
         await bg.rpc('refund_generation', { p_gen_id: genId, p_reason: reason });
+        // Geração grátis falhou -> devolve a unidade da cota (não houve crédito).
+        if (usedFree && freeBucket) await refundFreeQuota(user.id, freeBucket);
       }
     });
     const { data: profile } = await service

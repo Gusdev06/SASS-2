@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { getUser, getProfile } from '@/lib/auth';
+import { getFreeQuota } from '@/lib/free-quota';
 
 export const maxDuration = 300;
 import { t } from '@/lib/i18n';
@@ -61,7 +62,7 @@ export default async function DashboardPage() {
   }
 
   const supabase = await createClient();
-  const [profile, { data: recent }, { count: totalRenders }] = await Promise.all([
+  const [profile, { data: recent }, { count: totalRenders }, freeQuota] = await Promise.all([
     getProfile(),
     supabase
       .from('generations')
@@ -75,6 +76,7 @@ export default async function DashboardPage() {
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
       .not('output_url', 'is', null),
+    getFreeQuota(user.id),
   ]);
 
   const lang = await getLang(profile?.language_code);
@@ -119,7 +121,7 @@ export default async function DashboardPage() {
 
       <section>
         <h2 className="text-2xl font-bold tracking-tight mb-5">{t('newRender', lang)}</h2>
-        <GenPanel lang={lang} credits={credits} />
+        <GenPanel lang={lang} credits={credits} freeQuota={freeQuota} />
       </section>
 
       <section>
