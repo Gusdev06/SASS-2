@@ -23,11 +23,17 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
   const path = request.nextUrl.pathname;
   const isAuthRoute = path.startsWith('/login') || path.startsWith('/signup') || path.startsWith('/auth');
   const isProtected = path.startsWith('/pricing') || path.startsWith('/admin');
+  const isApp = path.startsWith('/dashboard');
+
+  // `auth.getUser()` é uma chamada de REDE ao Auth do Supabase. Só vale a pena
+  // nas rotas que precisam do usuário (gating) ou onde o token deve ser
+  // renovado (o app logado). Rotas públicas e os endpoints de polling
+  // (/api/*) — que já autenticam por conta própria — pulam essa ida à rede.
+  const needsUser = isAuthRoute || isProtected || isApp;
+  const user = needsUser ? (await supabase.auth.getUser()).data.user : null;
 
   const country = (
     request.headers.get('x-vercel-ip-country') ??
