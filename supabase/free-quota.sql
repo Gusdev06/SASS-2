@@ -37,8 +37,16 @@ create table if not exists public.free_quota (
   nano_pro     integer not null default 0,
   nano_v2      integer not null default 0,
   replicate    integer not null default 0,
+  undress      integer not null default 0,
+  edit         integer not null default 0,
+  faceswap     integer not null default 0,
   updated_at   timestamptz not null default now()
 );
+
+-- Colunas adicionadas depois (installs que já rodaram a 1ª versão).
+alter table public.free_quota add column if not exists undress  integer not null default 0;
+alter table public.free_quota add column if not exists edit     integer not null default 0;
+alter table public.free_quota add column if not exists faceswap integer not null default 0;
 
 -- RLS: somente service-role (server actions / webhooks) mutam e leem.
 -- Os clientes acessam a cota apenas via RPC SECURITY DEFINER abaixo.
@@ -100,6 +108,9 @@ as $$
     when 'nano_pro'  then 5
     when 'nano_v2'   then 5
     when 'replicate' then 2
+    when 'undress'   then 2
+    when 'edit'      then 2
+    when 'faceswap'  then 2
     else -1
   end;
 $$;
@@ -141,6 +152,9 @@ begin
     q.nano_pro := 0;
     q.nano_v2 := 0;
     q.replicate := 0;
+    q.undress := 0;
+    q.edit := 0;
+    q.faceswap := 0;
   end if;
 
   v_reset := q.window_start + interval '24 hours';
@@ -148,6 +162,9 @@ begin
     when 'nano_pro'  then q.nano_pro
     when 'nano_v2'   then q.nano_v2
     when 'replicate' then q.replicate
+    when 'undress'   then q.undress
+    when 'edit'      then q.edit
+    when 'faceswap'  then q.faceswap
   end;
 
   if v_used >= v_limit then
@@ -155,6 +172,7 @@ begin
     update public.free_quota
        set window_start = q.window_start,
            nano_pro = q.nano_pro, nano_v2 = q.nano_v2, replicate = q.replicate,
+           undress = q.undress, edit = q.edit, faceswap = q.faceswap,
            updated_at = v_now
      where user_id = p_user_id;
     return jsonb_build_object(
@@ -167,13 +185,20 @@ begin
     q.nano_pro := q.nano_pro + 1;
   elsif p_bucket = 'nano_v2' then
     q.nano_v2 := q.nano_v2 + 1;
-  else
+  elsif p_bucket = 'replicate' then
     q.replicate := q.replicate + 1;
+  elsif p_bucket = 'undress' then
+    q.undress := q.undress + 1;
+  elsif p_bucket = 'edit' then
+    q.edit := q.edit + 1;
+  else
+    q.faceswap := q.faceswap + 1;
   end if;
 
   update public.free_quota
      set window_start = q.window_start,
          nano_pro = q.nano_pro, nano_v2 = q.nano_v2, replicate = q.replicate,
+         undress = q.undress, edit = q.edit, faceswap = q.faceswap,
          updated_at = v_now
    where user_id = p_user_id;
 
@@ -212,6 +237,15 @@ begin
   elsif p_bucket = 'replicate' then
     update public.free_quota set replicate = greatest(0, replicate - 1), updated_at = v_now
      where user_id = p_user_id;
+  elsif p_bucket = 'undress' then
+    update public.free_quota set undress = greatest(0, undress - 1), updated_at = v_now
+     where user_id = p_user_id;
+  elsif p_bucket = 'edit' then
+    update public.free_quota set edit = greatest(0, edit - 1), updated_at = v_now
+     where user_id = p_user_id;
+  elsif p_bucket = 'faceswap' then
+    update public.free_quota set faceswap = greatest(0, faceswap - 1), updated_at = v_now
+     where user_id = p_user_id;
   end if;
 end;
 $$;
@@ -230,6 +264,7 @@ declare
   q       public.free_quota%rowtype;
   v_now   timestamptz := now();
   pro int := 0; v2 int := 0; rep int := 0;
+  und int := 0; edt int := 0; fsw int := 0;
   v_reset timestamptz := null;
 begin
   if not public.is_course_entitled(p_user_id) then
@@ -239,6 +274,7 @@ begin
   select * into q from public.free_quota where user_id = p_user_id;
   if found and q.window_start is not null and v_now - q.window_start < interval '24 hours' then
     pro := q.nano_pro; v2 := q.nano_v2; rep := q.replicate;
+    und := q.undress; edt := q.edit; fsw := q.faceswap;
     v_reset := q.window_start + interval '24 hours';
   end if;
 
@@ -248,7 +284,10 @@ begin
     'buckets', jsonb_build_object(
       'nano_pro',  jsonb_build_object('used', pro, 'limit', 5, 'remaining', greatest(0, 5 - pro)),
       'nano_v2',   jsonb_build_object('used', v2,  'limit', 5, 'remaining', greatest(0, 5 - v2)),
-      'replicate', jsonb_build_object('used', rep, 'limit', 2, 'remaining', greatest(0, 2 - rep))
+      'replicate', jsonb_build_object('used', rep, 'limit', 2, 'remaining', greatest(0, 2 - rep)),
+      'undress',   jsonb_build_object('used', und, 'limit', 2, 'remaining', greatest(0, 2 - und)),
+      'edit',      jsonb_build_object('used', edt, 'limit', 2, 'remaining', greatest(0, 2 - edt)),
+      'faceswap',  jsonb_build_object('used', fsw, 'limit', 2, 'remaining', greatest(0, 2 - fsw))
     )
   );
 end;

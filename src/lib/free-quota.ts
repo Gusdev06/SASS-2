@@ -9,12 +9,21 @@ import { createServiceClient } from '@/lib/supabase/server';
  * arquivo supabase/free-quota.sql.
  */
 
-export type FreeBucket = 'nano_pro' | 'nano_v2' | 'replicate';
+export type FreeBucket =
+  | 'nano_pro'
+  | 'nano_v2'
+  | 'replicate'
+  | 'undress'
+  | 'edit'
+  | 'faceswap';
 
 export const FREE_LIMITS: Record<FreeBucket, number> = {
   nano_pro: 5,
   nano_v2: 5,
   replicate: 2,
+  undress: 2,
+  edit: 2,
+  faceswap: 2,
 };
 
 export type FreeBucketState = { used: number; limit: number; remaining: number };

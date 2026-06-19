@@ -127,18 +127,24 @@ function runImageEngine(
 }
 
 /**
- * Mapeia a geração do tab `create` para o bucket de cota grátis diária.
- * Nano Banana Pro -> nano_pro · Nano Banana 2 -> nano_v2 · Replicate/NSFW ->
- * replicate. GPT Image não tem cota grátis (sempre créditos). Os demais tabs
- * (undress/faceswap/enhance/edit/video) também não — só créditos.
+ * Mapeia a geração para o bucket de cota grátis diária (compradores do curso).
+ *   create + Nano Banana Pro -> nano_pro
+ *   create + Nano Banana 2   -> nano_v2
+ *   create + Replicate/NSFW  -> replicate
+ *   undress / edit / faceswap -> bucket de mesmo nome (2/dia cada)
+ * GPT Image, enhance e video NÃO têm cota grátis (sempre créditos).
  */
 function freeBucketFor(kind: Kind, opts?: CreateOpts): FreeBucket | null {
-  if (kind !== 'create' || !opts) return null;
-  if (opts.engine === 'nano') {
-    return opts.nano.model === NANO_BANANA_MODELS.v2 ? 'nano_v2' : 'nano_pro';
+  if (kind === 'undress') return 'undress';
+  if (kind === 'edit') return 'edit';
+  if (kind === 'faceswap') return 'faceswap';
+  if (kind === 'create' && opts) {
+    if (opts.engine === 'nano') {
+      return opts.nano.model === NANO_BANANA_MODELS.v2 ? 'nano_v2' : 'nano_pro';
+    }
+    if (opts.engine === 'replicate') return 'replicate';
   }
-  if (opts.engine === 'replicate') return 'replicate';
-  return null; // gpt
+  return null; // gpt / enhance / video
 }
 
 async function filesToDataUris(files: File[]): Promise<string[]> {
@@ -360,6 +366,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       p_gen_id: genId,
       p_reason: reason,
     });
+    // Geração grátis falhou -> devolve a unidade da cota (não houve crédito).
+    if (usedFree && freeBucket) await refundFreeQuota(user.id, freeBucket);
     return { ok: false, error: reason, refunded: Boolean(refunded) };
   }
 }

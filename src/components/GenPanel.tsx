@@ -18,6 +18,13 @@ const MODEL_BUCKET: Record<string, FreeBucket | undefined> = {
   nsfw: 'replicate',
 };
 
+// Tabs que têm cota grátis própria (2/dia cada). Os demais (enhance/video) não.
+const KIND_BUCKET: Partial<Record<Kind, FreeBucket>> = {
+  undress: 'undress',
+  edit: 'edit',
+  faceswap: 'faceswap',
+};
+
 type Kind = 'enhance' | 'undress' | 'faceswap' | 'edit' | 'video' | 'create';
 
 const TABS: { id: Kind; en: string; pt: string; es: string; icon: string }[] = [
@@ -242,7 +249,7 @@ export default function GenPanel({
   // Cota grátis diária (compradores do curso). Só vale no tab `create` p/ os
   // modelos Nano/Replicate. Esgotou -> a geração passa a custar créditos.
   const entitled = !isAnon && freeQuota?.entitled === true;
-  const currentBucket = kind === 'create' ? MODEL_BUCKET[model] : undefined;
+  const currentBucket = kind === 'create' ? MODEL_BUCKET[model] : KIND_BUCKET[kind];
   const bucketState =
     freeQuota?.entitled && currentBucket ? freeQuota.buckets[currentBucket] : null;
   const freeRemaining = bucketState?.remaining ?? 0;
@@ -364,6 +371,11 @@ export default function GenPanel({
       <div className="border-b border-white/10 px-2 pt-2 flex gap-1 overflow-x-auto">
         {TABS.map((tb) => {
           const active = kind === tb.id;
+          const tabBucket = KIND_BUCKET[tb.id];
+          const tabFree =
+            entitled && tabBucket && freeQuota?.entitled
+              ? freeQuota.buckets[tabBucket].remaining
+              : null;
           return (
             <button
               key={tb.id}
@@ -377,6 +389,15 @@ export default function GenPanel({
             >
               <span className="mr-2">{tb.icon}</span>
               {labelFor(tb, lang)}
+              {tabFree !== null && (
+                <span
+                  className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle ${
+                    tabFree > 0 ? 'bg-lime/20 text-lime' : 'bg-white/10 text-bone-mute'
+                  }`}
+                >
+                  {tabFree > 0 ? `${tabFree} ${lang === 'en' ? 'free' : 'grátis'}` : '0'}
+                </span>
+              )}
             </button>
           );
         })}
