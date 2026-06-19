@@ -7,6 +7,7 @@ import Lightbox from './Lightbox';
 import WatermarkedResult from './WatermarkedResult';
 import GalleryPicker from './GalleryPicker';
 import { t, type Lang } from '@/lib/i18n';
+import { readRenderUrl } from '@/lib/dnd';
 import { CREDITS_PER_IMAGE, CREDITS_PER_VIDEO } from '@/lib/prompts';
 import type { FreeBucket, FreeQuotaState } from '@/lib/free-quota';
 
@@ -83,6 +84,27 @@ const ASPECT_OPTIONS: { id: string; label: { en: string; pt: string; es: string 
 // Output resolution (quality).
 const QUALITY_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
   { id: '1K', label: { en: '1K · fast', pt: '1K · rápido', es: '1K · rápido' } },
+  { id: '2K', label: { en: '2K · balanced', pt: '2K · equilibrado', es: '2K · equilibrado' } },
+  { id: '4K', label: { en: '4K · max', pt: '4K · máx', es: '4K · máx' } },
+];
+
+// NSFW (Seedream/Replicate) — aspect ratios aceitos pelo modelo. Inclui
+// `match_input_image` (útil quando há foto de referência anexada).
+const NSFW_ASPECT_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
+  { id: 'match_input_image', label: { en: 'Match image', pt: 'Igual à imagem', es: 'Igual a la imagen' } },
+  { id: '1:1', label: { en: 'Square 1:1', pt: 'Quadrado 1:1', es: 'Cuadrado 1:1' } },
+  { id: '4:5', label: { en: 'Portrait 4:5', pt: 'Retrato 4:5', es: 'Retrato 4:5' } },
+  { id: '3:4', label: { en: 'Portrait 3:4', pt: 'Retrato 3:4', es: 'Retrato 3:4' } },
+  { id: '2:3', label: { en: 'Portrait 2:3', pt: 'Retrato 2:3', es: 'Retrato 2:3' } },
+  { id: '9:16', label: { en: 'Story 9:16', pt: 'Story 9:16', es: 'Story 9:16' } },
+  { id: '4:3', label: { en: 'Landscape 4:3', pt: 'Paisagem 4:3', es: 'Paisaje 4:3' } },
+  { id: '3:2', label: { en: 'Landscape 3:2', pt: 'Paisagem 3:2', es: 'Paisaje 3:2' } },
+  { id: '16:9', label: { en: 'Wide 16:9', pt: 'Wide 16:9', es: 'Wide 16:9' } },
+  { id: '21:9', label: { en: 'Cinema 21:9', pt: 'Cinema 21:9', es: 'Cine 21:9' } },
+];
+
+// NSFW (Seedream) só aceita 2K e 4K.
+const NSFW_SIZE_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
   { id: '2K', label: { en: '2K · balanced', pt: '2K · equilibrado', es: '2K · equilibrado' } },
   { id: '4K', label: { en: '4K · max', pt: '4K · máx', es: '4K · máx' } },
 ];
@@ -177,10 +199,12 @@ export default function GenPanel({
 }) {
   const [kind, setKind] = useState<Kind>('create');
   const [model, setModel] = useState<string>(MODEL_OPTIONS[0].id);
-  const [aspect, setAspect] = useState<string>('1:1');
+  const [aspect, setAspect] = useState<string>('9:16');
   const [quality, setQuality] = useState<string>('2K');
-  const [gptSize, setGptSize] = useState<string>('1024x1024');
+  const [gptSize, setGptSize] = useState<string>('864x1536');
   const [gptQuality, setGptQuality] = useState<string>('high');
+  const [nsfwAspect, setNsfwAspect] = useState<string>('9:16');
+  const [nsfwSize, setNsfwSize] = useState<string>('2K');
   const [editPrompt, setEditPrompt] = useState('');
   const [reusedUrl, setReusedUrl] = useState<string | null>(null);
   const [result, setResult] = useState<GenResult | null>(null);
@@ -188,6 +212,8 @@ export default function GenPanel({
   // Face Swap usa dois slots distintos: rosto da influencer + cena alvo.
   const [faceFile, setFaceFile] = useState<File | null>(null);
   const [targetFile, setTargetFile] = useState<File | null>(null);
+  // Toggle NSFW do Face Swap (a engine usada por trás fica oculta do usuário).
+  const [faceswapNsfw, setFaceswapNsfw] = useState(false);
   const [drag, setDrag] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -391,6 +417,20 @@ export default function GenPanel({
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // Drop no dropzone: arquivos do sistema viram upload; uma imagem arrastada
+  // dos "Renders recentes" entra como imagem de referência (via URL).
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDrag(false);
+    if (e.dataTransfer.files?.length) {
+      handleFiles(e.dataTransfer.files);
+      return;
+    }
+    if (!canPickHistory) return;
+    const url = readRenderUrl(e.dataTransfer);
+    if (url) pickFromHistory(url);
+  }
+
   function pickFromHistory(url: string) {
     setReusedUrl(url);
     setFiles([]);
@@ -416,12 +456,16 @@ export default function GenPanel({
       } else if (engine === 'nano') {
         fd.set('aspect_ratio', aspect);
         fd.set('image_size', quality);
+      } else if (engine === 'replicate') {
+        fd.set('aspect_ratio', nsfwAspect);
+        fd.set('image_size', nsfwSize);
       }
     }
     if (kind === 'faceswap') {
       // Ordem importa no backend: [0] = rosto, [1] = cena alvo.
       if (faceFile) fd.append('images', faceFile);
       if (targetFile) fd.append('images', targetFile);
+      if (faceswapNsfw) fd.set('nsfw', '1');
     } else {
       for (const f of files) fd.append('images', f);
     }
@@ -509,6 +553,11 @@ export default function GenPanel({
             >
               <span className="mr-2">{tb.icon}</span>
               {labelFor(tb, lang)}
+              {tb.id === 'video' && (
+                <span className="ml-1.5 text-[10px] font-bold text-rose-400 align-middle">
+                  (NSFW)
+                </span>
+              )}
               {tabFree !== null && (
                 <span
                   className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle ${
@@ -623,11 +672,73 @@ export default function GenPanel({
                     </select>
                   </div>
                 </div>
+              ) : engine === 'replicate' ? (
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <div>
+                    <label className="field-label">
+                      {lang === 'pt' ? 'Proporção' : lang === 'es' ? 'Proporción' : 'Aspect ratio'}
+                    </label>
+                    <select value={nsfwAspect} onChange={(e) => setNsfwAspect(e.target.value)} className="input">
+                      {NSFW_ASPECT_OPTIONS.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label[lang]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label">
+                      {lang === 'pt' ? 'Qualidade' : lang === 'es' ? 'Calidad' : 'Quality'}
+                    </label>
+                    <select value={nsfwSize} onChange={(e) => setNsfwSize(e.target.value)} className="input">
+                      {NSFW_SIZE_OPTIONS.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.label[lang]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               ) : null}
             </div>
           )}
 
           {showUpload && kind === 'faceswap' && (
+            <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setFaceswapNsfw((v) => !v)}
+              role="switch"
+              aria-checked={faceswapNsfw}
+              className={`w-full flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+                faceswapNsfw
+                  ? 'border-rose-500/60 bg-rose-500/10'
+                  : 'border-white/10 bg-ink-900 hover:border-white/20'
+              }`}
+            >
+              <span className="flex items-center gap-2 text-sm font-bold">
+                <span aria-hidden>🔞</span>
+                NSFW
+                <span className="font-medium text-bone-dim text-xs">
+                  {lang === 'pt'
+                    ? 'conteúdo sem censura'
+                    : lang === 'es'
+                    ? 'contenido sin censura'
+                    : 'uncensored content'}
+                </span>
+              </span>
+              <span
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                  faceswapNsfw ? 'bg-rose-500' : 'bg-white/15'
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                    faceswapNsfw ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+            </button>
             <div className="grid sm:grid-cols-2 gap-4">
               <UploadSlot
                 lang={lang}
@@ -646,6 +757,7 @@ export default function GenPanel({
                 hint={lang === 'pt' ? 'A cena onde o rosto entra' : lang === 'es' ? 'La escena donde entra el rostro' : 'The scene to place the face in'}
               />
             </div>
+            </div>
           )}
 
           {showUpload && kind !== 'faceswap' && (
@@ -655,7 +767,7 @@ export default function GenPanel({
               <div
                 onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
                 onDragLeave={() => setDrag(false)}
-                onDrop={(e) => { e.preventDefault(); setDrag(false); handleFiles(e.dataTransfer.files); }}
+                onDrop={handleDrop}
                 onClick={() => inputRef.current?.click()}
                 className={`relative border-2 border-dashed cursor-pointer transition-all rounded-2xl p-10 grid place-items-center min-h-[280px] ${
                   drag ? 'border-lime bg-lime/10' : 'border-lime/50 bg-lime/5 hover:border-lime hover:bg-lime/5'
@@ -690,6 +802,15 @@ export default function GenPanel({
                           : `Up to ${maxFiles} reference images (optional) · JPG · PNG · WEBP`
                         : 'JPG · PNG · WEBP — max 8MB'}
                     </p>
+                    {canPickHistory && (
+                      <p className="text-[11px] text-lime/70 mt-1.5">
+                        {lang === 'pt'
+                          ? '🖼️ ou arraste um dos Renders recentes'
+                          : lang === 'es'
+                          ? '🖼️ o arrastra uno de los Renders recientes'
+                          : '🖼️ or drag one from Recent renders'}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className={`grid ${files.length > 2 ? 'grid-cols-3' : files.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-3 w-full`}>

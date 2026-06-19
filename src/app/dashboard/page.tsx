@@ -93,7 +93,6 @@ export default async function DashboardPage() {
 
   const lang = await getLang(profile?.language_code);
   const credits = profile?.credits ?? 0;
-  const imagesAvailable = Math.floor(credits / 5);
   const totalSpent = (totalRenders ?? 0) * 5;
 
   // Religa o acompanhamento da geração em andamento após um refresh: vídeo via
@@ -121,9 +120,6 @@ export default async function DashboardPage() {
             <span className="text-lime">{credits}</span>{' '}
             <span className="text-bone-dim font-normal">cr.</span>
           </h1>
-          <p className="text-sm text-bone-dim mt-3">
-            ≈ <strong className="text-bone">{imagesAvailable}</strong> {lang === 'pt' ? 'imagens disponíveis' : lang === 'es' ? 'imágenes disponibles' : 'images available'}
-          </p>
         </div>
         <Link href="/pricing" className="btn-primary text-sm">
           ↑ {t('buyMore', lang)}

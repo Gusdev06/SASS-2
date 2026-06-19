@@ -28,7 +28,6 @@ export default async function PricingPage() {
   // Pacotes de crédito são sempre em dólar (USD), para todo mundo.
   const currency: Currency = 'USD';
   const pkgs = packagesFor(currency);
-  const credits = profile?.credits ?? 0;
   const popularIdx = Math.min(3, pkgs.length - 1);
   const bestIdx = pkgs.length - 1;
 
@@ -39,12 +38,6 @@ export default async function PricingPage() {
           <p className="text-xs font-bold tracking-widest text-bone-mute uppercase mb-3">{t('packages', lang)}</p>
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight">{t('pricingTitle', lang)}</h1>
           <p className="text-bone-dim mt-3 max-w-xl text-sm">{t('pricingSub', lang)}</p>
-          <p className="text-xs text-bone-mute mt-2">
-            {CREDITS_PER_IMAGE} {t('credits', lang).toLowerCase()} = 1{' '}
-            {lang === 'pt' ? 'imagem' : lang === 'es' ? 'imagen' : 'image'} ·{' '}
-            {lang === 'pt' ? 'saldo' : lang === 'es' ? 'saldo' : 'balance'}{' '}
-            <strong className="text-lime">{credits} cr</strong>
-          </p>
         </div>
 
       </header>
@@ -100,13 +93,11 @@ export default async function PricingPage() {
         })}
       </section>
 
-      <section className="border-t border-white/10 pt-10 grid md:grid-cols-3 gap-6">
+      <section className="border-t border-white/10 pt-10 grid md:grid-cols-2 gap-6">
         {[
           { n: '01', t: lang === 'pt' ? 'Sem assinatura' : lang === 'es' ? 'Sin suscripción' : 'No subscription',
             d: lang === 'pt' ? 'Pague uma vez, use quando quiser. Créditos nunca expiram.' : lang === 'es' ? 'Pago único, úsalos cuando quieras. Los créditos no caducan.' : 'Pay once, use anytime. Credits never expire.' },
-          { n: '02', t: lang === 'pt' ? 'Pagamento PerfectPay' : lang === 'es' ? 'Pago PerfectPay' : 'PerfectPay payment',
-            d: lang === 'pt' ? 'Cartão, Pix, boleto. Créditos liberados em segundos.' : lang === 'es' ? 'Tarjeta, Pix, boleto. Créditos liberados en segundos.' : 'Card, Pix, boleto. Credits unlocked in seconds.' },
-          { n: '03', t: lang === 'pt' ? 'Renders ilimitados' : lang === 'es' ? 'Renders ilimitados' : 'Unlimited renders',
+          { n: '02', t: lang === 'pt' ? 'Renders ilimitados' : lang === 'es' ? 'Renders ilimitados' : 'Unlimited renders',
             d: lang === 'pt' ? 'Sem fila pública, sem cap diário.' : lang === 'es' ? 'Sin cola pública, sin tope diario.' : 'No public queue, no daily cap.' },
         ].map((row) => (
           <div key={row.n} className="card">

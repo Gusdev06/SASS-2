@@ -1,7 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import Lightbox from './Lightbox';
 import { type Lang, t } from '@/lib/i18n';
+import { deleteGenerationAction } from '@/lib/actions/delete-generation';
+import { RENDER_DND_MIME } from '@/lib/dnd';
 
 type Item = {
   id: string;
@@ -32,8 +34,36 @@ export default function HistoryGrid({
   cols?: number;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [pending, start] = useTransition();
 
-  if (!items.length) {
+  const confirmMsg =
+    lang === 'pt'
+      ? 'Excluir esta geração? Esta ação não pode ser desfeita.'
+      : lang === 'es'
+      ? '¿Eliminar esta generación? Esta acción no se puede deshacer.'
+      : 'Delete this generation? This action cannot be undone.';
+
+  function handleDelete(id: string) {
+    if (!window.confirm(confirmMsg)) return;
+    setDeleting(id);
+    const fd = new FormData();
+    fd.set('id', id);
+    start(async () => {
+      const r = await deleteGenerationAction({}, fd);
+      if (r.ok) {
+        setRemoved((prev) => new Set(prev).add(id));
+      } else {
+        window.alert(r.error ?? 'Error');
+      }
+      setDeleting(null);
+    });
+  }
+
+  const visible = items.filter((g) => !removed.has(g.id));
+
+  if (!visible.length) {
     return (
       <div className="card py-14 text-center">
         <div className="text-5xl mb-3 opacity-40">📭</div>
@@ -50,8 +80,27 @@ export default function HistoryGrid({
   return (
     <>
       <div className={`grid ${colClass} gap-3`}>
-        {items.map((g) => (
-          <figure key={g.id} className="group relative rounded-2xl overflow-hidden border border-white/10 bg-ink-800 hover:border-lime/40 transition-colors">
+        {visible.map((g) => {
+          const draggable = !!g.output_url && !isVideoUrl(g.output_url);
+          return (
+          <figure
+            key={g.id}
+            draggable={draggable}
+            onDragStart={
+              draggable
+                ? (e) => {
+                    const url = g.output_url as string;
+                    e.dataTransfer.setData(RENDER_DND_MIME, url);
+                    e.dataTransfer.setData('text/uri-list', url);
+                    e.dataTransfer.setData('text/plain', url);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }
+                : undefined
+            }
+            className={`group relative rounded-2xl overflow-hidden border border-white/10 bg-ink-800 hover:border-lime/40 transition-colors ${
+              draggable ? 'cursor-grab active:cursor-grabbing' : ''
+            }`}
+          >
             <button
               onClick={() => {
                 if (!g.output_url) return;
@@ -81,6 +130,7 @@ export default function HistoryGrid({
                   <img
                     src={g.output_url}
                     alt=""
+                    draggable={false}
                     className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                   />
                 )
@@ -90,23 +140,35 @@ export default function HistoryGrid({
                 </div>
               )}
             </button>
-            <figcaption className="absolute inset-x-0 bottom-0 p-3 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/40 to-transparent">
+            <figcaption className="absolute inset-x-0 bottom-0 p-3 flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
               <span className="text-[10px] font-bold tracking-widest text-bone-dim uppercase">
                 {kindLabel[g.kind ?? ''] ?? '—'}
               </span>
-              {g.output_url && (
-                <a
-                  href={g.output_url}
-                  download
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-[10px] font-bold bg-lime text-ink-900 px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:brightness-110"
+              <div className="flex items-center gap-2">
+                {g.output_url && (
+                  <a
+                    href={g.output_url}
+                    download
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[10px] font-bold bg-lime text-ink-900 px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:brightness-110"
+                  >
+                    ↓ DOWNLOAD
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); handleDelete(g.id); }}
+                  disabled={pending && deleting === g.id}
+                  aria-label="delete"
+                  className="text-[10px] font-bold bg-rose-600 text-white px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:brightness-110 disabled:opacity-60"
                 >
-                  ↓ DOWNLOAD
-                </a>
-              )}
+                  {pending && deleting === g.id ? '…' : '🗑'}
+                </button>
+              </div>
             </figcaption>
           </figure>
-        ))}
+          );
+        })}
       </div>
       <Lightbox src={open} onClose={() => setOpen(null)} />
     </>

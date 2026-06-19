@@ -5,7 +5,12 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { generateImage } from '@/lib/replicate';
+import {
+  generateImage,
+  SEEDREAM_SIZES,
+  SEEDREAM_ASPECT_RATIOS,
+  type SeedreamOptions,
+} from '@/lib/replicate';
 import {
   generateImage as generateNanoBanana,
   NANO_BANANA_MODELS,
@@ -77,6 +82,8 @@ type Kind = 'undress' | 'faceswap' | 'enhance' | 'edit' | 'video' | 'create';
 const NANO_BANANA_VALUES = new Set<string>(Object.values(NANO_BANANA_MODELS));
 const ASPECT_VALUES = new Set<string>(ASPECT_RATIOS);
 const SIZE_VALUES = new Set<string>(IMAGE_SIZES);
+const SEEDREAM_SIZE_VALUES = new Set<string>(SEEDREAM_SIZES);
+const SEEDREAM_ASPECT_VALUES = new Set<string>(SEEDREAM_ASPECT_RATIOS);
 
 /** GPT Image (OpenAI) — selectable on the `create` tab. Model is fixed. */
 const GPT_IMAGE_MODEL = 'gpt-image-2';
@@ -94,7 +101,7 @@ const GPT_QUALITY_VALUES = new Set<string>(['low', 'medium', 'high']);
 type CreateOpts =
   | { engine: 'nano'; nano: NanoBananaOptions }
   | { engine: 'gpt'; gpt: GptImageOptions }
-  | { engine: 'replicate' };
+  | { engine: 'replicate'; replicate: SeedreamOptions };
 
 export type GenResult =
   | { ok: true; outputUrl: string; remaining: number; watermarked?: boolean }
@@ -122,8 +129,13 @@ function runImageEngine(
 ): Promise<string> {
   if (kind === 'create') {
     if (opts?.engine === 'gpt') return generateGptImage(prompt, inputUrls, opts.gpt);
-    if (opts?.engine === 'replicate') return generateImage(prompt, inputUrls);
+    if (opts?.engine === 'replicate') return generateImage(prompt, inputUrls, opts.replicate);
     return generateNanoBanana(prompt, inputUrls, opts?.engine === 'nano' ? opts.nano : undefined);
+  }
+  // Face Swap com NSFW desligado roda no Nano Banana Pro (2K); ligado cai no
+  // Replicate. Os demais flows seguem sempre no Replicate.
+  if (kind === 'faceswap' && opts?.engine === 'nano') {
+    return generateNanoBanana(prompt, inputUrls, opts.nano);
   }
   return generateImage(prompt, inputUrls);
 }
@@ -196,7 +208,15 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
         },
       };
     } else if (rawModel === NSFW_MODEL) {
-      createOpts = { engine: 'replicate' };
+      const rawAspect = formData.get('aspect_ratio') ? String(formData.get('aspect_ratio')) : null;
+      const rawSize = formData.get('image_size') ? String(formData.get('image_size')) : null;
+      createOpts = {
+        engine: 'replicate',
+        replicate: {
+          aspectRatio: rawAspect && SEEDREAM_ASPECT_VALUES.has(rawAspect) ? rawAspect : undefined,
+          size: rawSize && SEEDREAM_SIZE_VALUES.has(rawSize) ? rawSize : undefined,
+        },
+      };
     } else {
       const rawAspect = formData.get('aspect_ratio') ? String(formData.get('aspect_ratio')) : null;
       const rawSize = formData.get('image_size') ? String(formData.get('image_size')) : null;
@@ -207,6 +227,16 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
           aspectRatio: rawAspect && ASPECT_VALUES.has(rawAspect) ? rawAspect : undefined,
           imageSize: rawSize && SIZE_VALUES.has(rawSize) ? rawSize : undefined,
         },
+      };
+    }
+  } else if (kind === 'faceswap') {
+    // Toggle NSFW (oculta a engine do usuário): desligado -> Nano Banana Pro
+    // em 2K; ligado -> Replicate (createOpts fica undefined e cai no Seedream).
+    const nsfw = formData.get('nsfw') === '1';
+    if (!nsfw) {
+      createOpts = {
+        engine: 'nano',
+        nano: { model: NANO_BANANA_MODELS.pro, imageSize: '2K' },
       };
     }
   }
