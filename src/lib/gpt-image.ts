@@ -13,12 +13,15 @@
  * GPT image models always return base64 (never a URL), so we return a
  * `data:image/<fmt>;base64,...` URI — the same shape Vertex returns.
  *
- * NOTE: the `/generations` endpoint is text → image only and does NOT accept
- * input images (that is the separate `/images/edits` endpoint). `imageInput`
- * is therefore ignored here.
+ * When `imageInput` is provided we hit the separate `/images/edits` endpoint
+ * (multipart, up to 16 `image[]` files) so the references are actually used;
+ * with no images we fall back to text → image `/generations`.
  */
 
 const API_URL = 'https://api.openai.com/v1/images/generations';
+const EDIT_API_URL = 'https://api.openai.com/v1/images/edits';
+/** OpenAI edits endpoint accepts at most 16 input images. */
+const MAX_EDIT_IMAGES = 16;
 const API_KEY = process.env.OPENAI_API_KEY ?? '';
 
 /** Fixed model — not configurable per request. */
@@ -110,6 +113,92 @@ const MIME_BY_FORMAT: Record<GptImageFormat, string> = {
   webp: 'image/webp',
 };
 
+const EXT_BY_MIME: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/webp': 'webp',
+};
+
+/** Shared response reader — both endpoints return `{ data: [{ b64_json }] }`. */
+async function readImageResponse(res: Response, format: GptImageFormat): Promise<string> {
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    const { code, message } = classifyStatus(res.status, body);
+    throw new ImageEngineError(code, message, 0, body.slice(0, 300));
+  }
+  const json = (await res.json()) as {
+    data?: Array<{ b64_json?: string }>;
+    output_format?: GptImageFormat;
+  };
+  const b64 = json.data?.[0]?.b64_json;
+  if (!b64) {
+    throw new ImageEngineError('unexpected_response', 'no image in openai response', 0);
+  }
+  const mime = MIME_BY_FORMAT[json.output_format ?? format] ?? 'image/png';
+  return `data:${mime};base64,${b64}`;
+}
+
+/** Turn a `data:` URI or http(s) URL into a Blob + filename for multipart upload. */
+async function toBlobPart(src: string, idx: number): Promise<{ blob: Blob; filename: string }> {
+  const dataMatch = /^data:([^;,]+)?(?:;[^,]*)?,(.*)$/s.exec(src);
+  let mime: string;
+  let buf: Buffer;
+  if (dataMatch) {
+    mime = dataMatch[1] || 'image/png';
+    buf = Buffer.from(dataMatch[2], 'base64');
+  } else {
+    const res = await fetch(src);
+    if (!res.ok) {
+      throw new ImageEngineError('invalid_input', `failed to fetch reference image (${res.status})`, 0);
+    }
+    mime = res.headers.get('content-type')?.split(';')[0] || 'image/png';
+    buf = Buffer.from(await res.arrayBuffer());
+  }
+  // Node Buffer is a valid BlobPart at runtime; the cast just bridges the lib types.
+  const blob = new Blob([buf as unknown as BlobPart], { type: mime });
+  return { blob, filename: `image_${idx}.${EXT_BY_MIME[mime] ?? 'png'}` };
+}
+
+async function callOpenAIEdit(
+  prompt: string,
+  imageInput: string[],
+  opts: GptImageOptions
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
+  const format: GptImageFormat = opts.outputFormat ?? 'png';
+  try {
+    const parts = await Promise.all(
+      imageInput.slice(0, MAX_EDIT_IMAGES).map((src, i) => toBlobPart(src, i))
+    );
+    const form = new FormData();
+    form.set('model', MODEL);
+    form.set('prompt', prompt);
+    form.set('n', '1');
+    form.set('size', opts.size ?? '1024x1024');
+    if (opts.quality) form.set('quality', opts.quality);
+    if (opts.background) form.set('background', opts.background);
+    if (opts.moderation) form.set('moderation', opts.moderation);
+    form.set('output_format', format);
+    if (typeof opts.outputCompression === 'number' && format !== 'png') {
+      form.set('output_compression', String(opts.outputCompression));
+    }
+    // `image[]` lets a single request carry multiple reference images.
+    for (const part of parts) form.append('image[]', part.blob, part.filename);
+
+    const res = await fetch(EDIT_API_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${API_KEY}` }, // no Content-Type — fetch sets the multipart boundary
+      body: form,
+      signal: controller.signal,
+    });
+    return await readImageResponse(res, format);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callOpenAI(prompt: string, opts: GptImageOptions): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GENERATION_TIMEOUT_MS);
@@ -136,23 +225,7 @@ async function callOpenAI(prompt: string, opts: GptImageOptions): Promise<string
       }),
       signal: controller.signal,
     });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      const { code, message } = classifyStatus(res.status, body);
-      throw new ImageEngineError(code, message, 0, body.slice(0, 300));
-    }
-
-    const json = (await res.json()) as {
-      data?: Array<{ b64_json?: string }>;
-      output_format?: GptImageFormat;
-    };
-    const b64 = json.data?.[0]?.b64_json;
-    if (!b64) {
-      throw new ImageEngineError('unexpected_response', 'no image in openai response', 0);
-    }
-    const mime = MIME_BY_FORMAT[json.output_format ?? format] ?? 'image/png';
-    return `data:${mime};base64,${b64}`;
+    return await readImageResponse(res, format);
   } finally {
     clearTimeout(timer);
   }
@@ -174,22 +247,26 @@ function classifyThrown(err: unknown): { code: ImageEngineErrorCode; message: st
  * Generate an image from a text prompt with GPT Image (`gpt-image-2`).
  * Returns a `data:image/<fmt>;base64,...` URI.
  *
- * `imageInput` is accepted for signature parity with the other engines but
- * ignored — the `/generations` endpoint is text-only.
+ * With `imageInput` present, the references are sent to the `/images/edits`
+ * endpoint (up to 16); otherwise it's a text-only `/generations` call.
  */
 export async function generateImage(
   prompt: string,
-  _imageInput?: string[],
+  imageInput?: string[],
   opts: GptImageOptions = {}
 ): Promise<string> {
   if (!API_KEY) throw new ImageEngineError('auth_missing', 'OPENAI_API_KEY not set', 0);
+
+  const hasImages = !!imageInput && imageInput.length > 0;
 
   let lastCode: ImageEngineErrorCode = 'unknown';
   let lastMessage = 'unknown';
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      return await callOpenAI(prompt, opts);
+      return hasImages
+        ? await callOpenAIEdit(prompt, imageInput!, opts)
+        : await callOpenAI(prompt, opts);
     } catch (err) {
       const { code, message } = classifyThrown(err);
       lastCode = code;

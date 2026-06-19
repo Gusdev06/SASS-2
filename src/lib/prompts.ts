@@ -1,4 +1,4 @@
-export const CREDITS_PER_IMAGE = 5;
+export const CREDITS_PER_IMAGE = 10;
 export const CREDITS_PER_VIDEO = 25;
 
 export const ENHANCE_PROMPT =

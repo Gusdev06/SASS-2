@@ -7,6 +7,7 @@ import Lightbox from './Lightbox';
 import WatermarkedResult from './WatermarkedResult';
 import GalleryPicker from './GalleryPicker';
 import { t, type Lang } from '@/lib/i18n';
+import { CREDITS_PER_IMAGE, CREDITS_PER_VIDEO } from '@/lib/prompts';
 import type { FreeBucket, FreeQuotaState } from '@/lib/free-quota';
 
 const ANON_KEY = 'goz_free_used';
@@ -89,6 +90,78 @@ const QUALITY_OPTIONS: { id: string; label: { en: string; pt: string; es: string
 const labelFor = (tab: typeof TABS[number], lang: Lang) =>
   lang === 'pt' ? tab.pt : lang === 'es' ? tab.es : tab.en;
 
+// Slot de upload de uma única imagem. Usado para separar o Face Swap em dois
+// campos distintos (rosto da influencer + cena alvo), deixando claro o que vai
+// em cada um em vez de um único dropzone que aceita 2 fotos na ordem certa.
+function UploadSlot({
+  label,
+  hint,
+  badge,
+  file,
+  onFile,
+  lang,
+}: {
+  label: string;
+  hint: string;
+  badge: string;
+  file: File | null;
+  onFile: (f: File | null) => void;
+  lang: Lang;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [drag, setDrag] = useState(false);
+  const pick = (list: FileList | null) => {
+    const f = list && Array.from(list).find((x) => x.type.startsWith('image/'));
+    if (f) onFile(f);
+  };
+  return (
+    <div>
+      <label className="field-label">{label}</label>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files); }}
+        onClick={() => ref.current?.click()}
+        className={`relative border-2 border-dashed cursor-pointer transition-all rounded-2xl p-6 grid place-items-center min-h-[220px] ${
+          drag ? 'border-lime bg-lime/10' : 'border-lime/50 bg-lime/5 hover:border-lime hover:bg-lime/5'
+        }`}
+      >
+        <input
+          ref={ref}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => pick(e.target.files)}
+        />
+        {file ? (
+          <div className="relative w-full aspect-square overflow-hidden bg-ink-900 border border-white/10 rounded-xl">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={URL.createObjectURL(file)} alt="" className="w-full h-full object-cover" />
+            <div className="absolute top-2 left-2 text-[10px] font-bold tracking-widest bg-ink-900/80 backdrop-blur-sm px-2 py-1 rounded">
+              {badge}
+            </div>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onFile(null); }}
+              className="absolute top-2 right-2 w-6 h-6 grid place-items-center rounded-full bg-ink-900/80 backdrop-blur-sm text-bone hover:text-white text-xs font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        ) : (
+          <div className="text-center">
+            <div className="text-4xl mb-2">📤</div>
+            <p className="font-bold text-base mb-1.5">
+              {lang === 'pt' ? 'Arraste ou clique' : lang === 'es' ? 'Arrastra o haz clic' : 'Drag or click'}
+            </p>
+            <p className="text-xs text-bone-dim">{hint}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GenPanel({
   lang,
   credits,
@@ -112,6 +185,9 @@ export default function GenPanel({
   const [reusedUrl, setReusedUrl] = useState<string | null>(null);
   const [result, setResult] = useState<GenResult | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  // Face Swap usa dois slots distintos: rosto da influencer + cena alvo.
+  const [faceFile, setFaceFile] = useState<File | null>(null);
+  const [targetFile, setTargetFile] = useState<File | null>(null);
   const [drag, setDrag] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -265,7 +341,10 @@ export default function GenPanel({
   const engine = (MODEL_OPTIONS.find((m) => m.id === model) ?? MODEL_OPTIONS[0]).engine;
   const isGpt = engine === 'gpt';
   const expectedFiles = kind === 'faceswap' ? 2 : 1;
-  const cost = kind === 'video' ? 25 : 5;
+  // `create` aceita várias imagens de referência (todas opcionais); os demais
+  // fluxos têm contagem fixa (faceswap = 2, resto = 1).
+  const maxFiles = kind === 'create' ? 8 : expectedFiles;
+  const cost = kind === 'video' ? CREDITS_PER_VIDEO : CREDITS_PER_IMAGE;
 
   // Cota grátis diária (compradores do curso). Só vale no tab `create` p/ os
   // modelos Nano/Replicate. Esgotou -> a geração passa a custar créditos.
@@ -293,15 +372,23 @@ export default function GenPanel({
     !blockedAnon &&
     (kind === 'create'
       ? promptOk // reference image optional
+      : kind === 'faceswap'
+      ? Boolean(faceFile && targetFile)
       : needsPrompt
       ? promptOk && (reusedUrl || files.length >= 1)
       : reusedUrl || files.length >= expectedFiles);
 
   function handleFiles(list: FileList | File[]) {
     const arr = Array.from(list).filter((f) => f.type.startsWith('image/'));
-    setFiles(arr.slice(0, expectedFiles));
+    // Fluxos multi-imagem (create) acumulam as fotos a cada seleção; fluxos de
+    // uma imagem só substituem pela mais recente.
+    setFiles((prev) => (maxFiles === 1 ? arr.slice(0, 1) : [...prev, ...arr].slice(0, maxFiles)));
     setReusedUrl(null);
     setResult(null);
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   function pickFromHistory(url: string) {
@@ -331,7 +418,13 @@ export default function GenPanel({
         fd.set('image_size', quality);
       }
     }
-    for (const f of files) fd.append('images', f);
+    if (kind === 'faceswap') {
+      // Ordem importa no backend: [0] = rosto, [1] = cena alvo.
+      if (faceFile) fd.append('images', faceFile);
+      if (targetFile) fd.append('images', targetFile);
+    } else {
+      for (const f of files) fd.append('images', f);
+    }
     start(async () => {
       const r = await generateAction(fd);
       if (r.ok && 'isVideo' in r && r.isVideo) {
@@ -351,6 +444,8 @@ export default function GenPanel({
         setResult(null);
         setImagePoll({ genId: r.genId, remaining: r.remaining });
         setFiles([]);
+        setFaceFile(null);
+        setTargetFile(null);
         router.refresh();
         return;
       }
@@ -358,6 +453,8 @@ export default function GenPanel({
       if (r.ok && 'outputUrl' in r) {
         setReusedUrl(r.outputUrl);
         setFiles([]);
+        setFaceFile(null);
+        setTargetFile(null);
         if (isAnon && typeof window !== 'undefined') {
           window.localStorage.setItem(ANON_KEY, '1');
           setFreeUsed(true);
@@ -371,15 +468,17 @@ export default function GenPanel({
     setKind(id);
     setResult(null);
     setFiles([]);
+    setFaceFile(null);
+    setTargetFile(null);
   }
 
   const uploadHint =
     kind === 'create'
       ? lang === 'pt'
-        ? 'Imagem de referência (opcional)'
+        ? 'Imagens de referência (opcional)'
         : lang === 'es'
-        ? 'Imagen de referencia (opcional)'
-        : 'Reference image (optional)'
+        ? 'Imágenes de referencia (opcional)'
+        : 'Reference images (optional)'
       : kind === 'faceswap'
       ? t('uploadTwoFace', lang)
       : kind === 'enhance'
@@ -528,7 +627,28 @@ export default function GenPanel({
             </div>
           )}
 
-          {showUpload && (
+          {showUpload && kind === 'faceswap' && (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <UploadSlot
+                lang={lang}
+                file={faceFile}
+                onFile={(f) => { setFaceFile(f); setResult(null); }}
+                badge="FACE"
+                label={lang === 'pt' ? '1 · Foto da influencer (rosto)' : lang === 'es' ? '1 · Foto de la influencer (rostro)' : '1 · Influencer photo (face)'}
+                hint={lang === 'pt' ? 'O rosto que será usado' : lang === 'es' ? 'El rostro que se usará' : 'The face to use'}
+              />
+              <UploadSlot
+                lang={lang}
+                file={targetFile}
+                onFile={(f) => { setTargetFile(f); setResult(null); }}
+                badge="CENA"
+                label={lang === 'pt' ? '2 · Imagem da cena (alvo)' : lang === 'es' ? '2 · Imagen de la escena (objetivo)' : '2 · Scene image (target)'}
+                hint={lang === 'pt' ? 'A cena onde o rosto entra' : lang === 'es' ? 'La escena donde entra el rostro' : 'The scene to place the face in'}
+              />
+            </div>
+          )}
+
+          {showUpload && kind !== 'faceswap' && (
             <div>
               <label className="field-label">{uploadHint}</label>
 
@@ -545,7 +665,7 @@ export default function GenPanel({
                   ref={inputRef}
                   type="file"
                   accept="image/*"
-                  multiple={expectedFiles > 1}
+                  multiple={maxFiles > 1}
                   className="hidden"
                   onChange={(e) => e.target.files && handleFiles(e.target.files)}
                 />
@@ -562,20 +682,49 @@ export default function GenPanel({
                           : lang === 'es'
                           ? '2 imágenes — rostro + cuerpo/escena'
                           : '2 images — face + body/scene'
+                        : maxFiles > 1
+                        ? lang === 'pt'
+                          ? `Até ${maxFiles} imagens de referência (opcional) · JPG · PNG · WEBP`
+                          : lang === 'es'
+                          ? `Hasta ${maxFiles} imágenes de referencia (opcional) · JPG · PNG · WEBP`
+                          : `Up to ${maxFiles} reference images (optional) · JPG · PNG · WEBP`
                         : 'JPG · PNG · WEBP — max 8MB'}
                     </p>
                   </div>
                 ) : (
-                  <div className={`grid ${files.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-3 w-full`}>
+                  <div className={`grid ${files.length > 2 ? 'grid-cols-3' : files.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-3 w-full`}>
                     {files.map((f, i) => (
                       <div key={i} className="relative aspect-square overflow-hidden bg-ink-900 border border-white/10 rounded-xl">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={URL.createObjectURL(f)} alt="" className="w-full h-full object-cover" />
                         <div className="absolute top-2 left-2 text-[10px] font-bold tracking-widest bg-ink-900/80 backdrop-blur-sm px-2 py-1 rounded">
-                          {expectedFiles > 1 ? (i === 0 ? 'FACE' : 'TARGET') : '01'}
+                          {expectedFiles > 1
+                            ? i === 0
+                              ? 'FACE'
+                              : 'TARGET'
+                            : String(i + 1).padStart(2, '0')}
                         </div>
+                        {maxFiles > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeFile(i); }}
+                            className="absolute top-2 right-2 w-6 h-6 grid place-items-center rounded-full bg-ink-900/80 backdrop-blur-sm text-bone hover:text-white text-xs font-bold"
+                          >
+                            ✕
+                          </button>
+                        )}
                       </div>
                     ))}
+                    {maxFiles > 1 && files.length < maxFiles && (
+                      <div className="grid place-items-center aspect-square rounded-xl border-2 border-dashed border-lime/40 text-lime/70 hover:border-lime hover:text-lime transition-colors">
+                        <div className="text-center">
+                          <div className="text-3xl leading-none">＋</div>
+                          <div className="mt-1 text-[10px] font-bold tracking-widest">
+                            {files.length}/{maxFiles}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -795,7 +944,7 @@ export default function GenPanel({
 
           <div className="space-y-3.5 text-sm">
             <Row label={lang === 'pt' ? 'Motor' : lang === 'es' ? 'Motor' : 'Engine'} value={labelFor(TABS.find((x) => x.id === kind)!, lang)} />
-            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${reusedUrl && kind !== 'faceswap' ? 1 : files.length}/${expectedFiles}`} />
+            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${kind === 'faceswap' ? [faceFile, targetFile].filter(Boolean).length : reusedUrl ? 1 : files.length}/${expectedFiles}`} />
             {isAnon ? (
               <>
                 <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value="FREE" accent />

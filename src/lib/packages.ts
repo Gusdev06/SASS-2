@@ -8,7 +8,7 @@ export type CreditPackage = {
   bonusImages?: number;
 };
 
-export const CREDITS_PER_IMAGE = 5;
+export const CREDITS_PER_IMAGE = 10;
 
 export const PACKAGES_BRL: CreditPackage[] = [
   { id: 'p10', credits: 30, price: 10, currency: 'BRL' },

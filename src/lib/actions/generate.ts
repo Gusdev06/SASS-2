@@ -69,6 +69,8 @@ async function watermarkRemote(url: string): Promise<string> {
 }
 
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
+/** Max reference images accepted on the `create` tab (Nano Banana / Seedream / GPT edits). */
+const MAX_CREATE_IMAGES = 8;
 const ANON_COOKIE = 'anon_used';
 type Kind = 'undress' | 'faceswap' | 'enhance' | 'edit' | 'video' | 'create';
 
@@ -234,7 +236,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
         const buf = new Uint8Array(await f.arrayBuffer());
         videoInputUrl = await uploadAsset(buf, f.type || 'image/jpeg', f.name || 'input.jpg');
       } else if (kind === 'create') {
-        inputUrls = files.length ? await filesToDataUris(files.slice(0, 3)) : [];
+        inputUrls = files.length ? await filesToDataUris(files.slice(0, MAX_CREATE_IMAGES)) : [];
       } else {
         inputUrls = await filesToDataUris(files.slice(0, expected));
       }
