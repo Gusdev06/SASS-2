@@ -77,6 +77,8 @@ const SIZE_VALUES = new Set<string>(IMAGE_SIZES);
 
 /** GPT Image (OpenAI) — selectable on the `create` tab. Model is fixed. */
 const GPT_IMAGE_MODEL = 'gpt-image-2';
+/** Nsfw — uncensored Replicate (Seedream) engine on the `create` tab. */
+const NSFW_MODEL = 'nsfw';
 const GPT_SIZE_VALUES = new Set<string>([
   '1024x1024',
   '1536x1024',
@@ -88,7 +90,8 @@ const GPT_QUALITY_VALUES = new Set<string>(['low', 'medium', 'high']);
 
 type CreateOpts =
   | { engine: 'nano'; nano: NanoBananaOptions }
-  | { engine: 'gpt'; gpt: GptImageOptions };
+  | { engine: 'gpt'; gpt: GptImageOptions }
+  | { engine: 'replicate' };
 
 export type GenResult =
   | { ok: true; outputUrl: string; remaining: number; watermarked?: boolean }
@@ -116,6 +119,7 @@ function runImageEngine(
 ): Promise<string> {
   if (kind === 'create') {
     if (opts?.engine === 'gpt') return generateGptImage(prompt, inputUrls, opts.gpt);
+    if (opts?.engine === 'replicate') return generateImage(prompt, inputUrls);
     return generateNanoBanana(prompt, inputUrls, opts?.engine === 'nano' ? opts.nano : undefined);
   }
   return generateImage(prompt, inputUrls);
@@ -167,6 +171,8 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
             : undefined,
         },
       };
+    } else if (rawModel === NSFW_MODEL) {
+      createOpts = { engine: 'replicate' };
     } else {
       const rawAspect = formData.get('aspect_ratio') ? String(formData.get('aspect_ratio')) : null;
       const rawSize = formData.get('image_size') ? String(formData.get('image_size')) : null;

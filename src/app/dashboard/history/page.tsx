@@ -43,23 +43,6 @@ export default async function HistoryPage({
         <p className="text-sm text-bone-dim mt-3">
           {(items?.length ?? 0)} {lang === 'pt' ? 'entradas' : lang === 'es' ? 'entradas' : 'entries'}
         </p>
-        <div className="mt-5 border border-lime/30 bg-lime/[0.06] rounded-xl px-4 py-3 text-xs text-bone-dim flex items-start gap-2">
-          <span aria-hidden className="text-lime font-bold leading-none mt-px">✓</span>
-          <div>
-            <strong className="text-lime font-bold">
-              {lang === 'pt'
-                ? 'Suas gerações ficam salvas.'
-                : lang === 'es'
-                ? 'Tus generaciones quedan guardadas.'
-                : 'Your generations are saved.'}
-            </strong>{' '}
-            {lang === 'pt'
-              ? 'Tudo fica disponível aqui no seu histórico — baixe quando quiser.'
-              : lang === 'es'
-              ? 'Todo queda disponible aquí en tu historial — descarga cuando quieras.'
-              : 'Everything stays here in your history — download whenever you want.'}
-          </div>
-        </div>
       </header>
 
       <section className="flex flex-wrap gap-2 items-center">

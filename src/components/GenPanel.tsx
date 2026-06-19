@@ -23,16 +23,18 @@ const TABS: { id: Kind; en: string; pt: string; es: string; icon: string }[] = [
 // SFW image models. Only shown on the `create` tab.
 // `engine` selects which backend the server action routes to.
 const GPT_IMAGE_MODEL = 'gpt-image-2';
+const NSFW_MODEL = 'nsfw';
 const MODEL_OPTIONS: {
   id: string;
   icon: string;
-  engine: 'nano' | 'gpt';
+  engine: 'nano' | 'gpt' | 'replicate';
   label: string;
   hint: { en: string; pt: string; es: string };
 }[] = [
   { id: 'gemini-3-pro-image-preview', icon: '🍌', engine: 'nano', label: 'Nano Banana Pro', hint: { en: 'Highest quality', pt: 'Máxima qualidade', es: 'Máxima calidad' } },
   { id: 'gemini-3.1-flash-image-preview', icon: '🍌', engine: 'nano', label: 'Nano Banana 2', hint: { en: 'Faster', pt: 'Mais rápido', es: 'Más rápido' } },
   { id: GPT_IMAGE_MODEL, icon: '🎨', engine: 'gpt', label: 'GPT Image', hint: { en: 'OpenAI · sharp text', pt: 'OpenAI · texto nítido', es: 'OpenAI · texto nítido' } },
+  { id: NSFW_MODEL, icon: '🔥', engine: 'replicate', label: 'NSFW', hint: { en: 'Uncensored', pt: 'Sem censura', es: 'Sin censura' } },
 ];
 
 // GPT Image sizes (the only ones the GPT image models accept).
@@ -222,7 +224,8 @@ export default function GenPanel({
     };
   }, [imagePoll, result, router, lang]);
 
-  const isGpt = model === GPT_IMAGE_MODEL;
+  const engine = (MODEL_OPTIONS.find((m) => m.id === model) ?? MODEL_OPTIONS[0]).engine;
+  const isGpt = engine === 'gpt';
   const expectedFiles = kind === 'faceswap' ? 2 : 1;
   const cost = kind === 'video' ? 25 : 5;
   // Reusing a prior generation as input works for every single-image flow.
@@ -274,7 +277,7 @@ export default function GenPanel({
       if (isGpt) {
         fd.set('gpt_size', gptSize);
         fd.set('gpt_quality', gptQuality);
-      } else {
+      } else if (engine === 'nano') {
         fd.set('aspect_ratio', aspect);
         fd.set('image_size', quality);
       }
@@ -358,26 +361,6 @@ export default function GenPanel({
         })}
       </div>
 
-      {!isAnon && (
-        <div className="mx-6 md:mx-8 mt-6 border border-lime/30 bg-lime/[0.06] rounded-xl px-4 py-3 text-xs text-bone-dim flex items-start gap-2">
-          <span aria-hidden className="text-lime font-bold leading-none mt-px">✓</span>
-          <div>
-            <strong className="text-lime font-bold">
-              {lang === 'pt'
-                ? 'Suas gerações ficam salvas.'
-                : lang === 'es'
-                ? 'Tus generaciones quedan guardadas.'
-                : 'Your generations are saved.'}
-            </strong>{' '}
-            {lang === 'pt'
-              ? 'Todo resultado fica disponível no seu histórico — acesse e baixe quando quiser.'
-              : lang === 'es'
-              ? 'Cada resultado queda disponible en tu historial — accede y descarga cuando quieras.'
-              : 'Every result stays in your history — access and download it whenever you want.'}
-          </div>
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} className="p-6 md:p-8 grid lg:grid-cols-[1fr_300px] gap-8">
         {/* input area */}
         <div className="space-y-5">
@@ -437,7 +420,7 @@ export default function GenPanel({
                     </select>
                   </div>
                 </div>
-              ) : (
+              ) : engine === 'nano' ? (
                 <div className="grid grid-cols-2 gap-3 mt-4">
                   <div>
                     <label className="field-label">
@@ -464,7 +447,7 @@ export default function GenPanel({
                     </select>
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
 
