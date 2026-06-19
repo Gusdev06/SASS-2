@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { generateAction, type GenResult } from '@/lib/actions/generate';
@@ -184,6 +184,195 @@ function UploadSlot({
   );
 }
 
+// Uma geração em background (imagem do `create` ou vídeo). Cada job faz seu
+// próprio polling, então o usuário pode disparar vários ao mesmo tempo.
+type Job =
+  | { id: string; type: 'video'; runId: string; remaining: number }
+  | { id: string; type: 'image'; genId: string; remaining: number };
+
+function GenJob({
+  job,
+  lang,
+  onDone,
+  onOpenImage,
+}: {
+  job: Job;
+  lang: Lang;
+  onDone: (id: string) => void;
+  onOpenImage: (url: string) => void;
+}) {
+  const router = useRouter();
+  const [status, setStatus] = useState<string>(job.type === 'video' ? 'queued' : 'processing');
+  const [progress, setProgress] = useState(0);
+  const [liveStatus, setLiveStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refunded, setRefunded] = useState(false);
+  const [doneUrl, setDoneUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = Date.now();
+    const isVideo = job.type === 'video';
+    const MAX_MS = isVideo ? 8 * 60 * 1000 : 4 * 60 * 1000;
+    const url = isVideo ? `/api/video-status/${job.runId}` : `/api/image-status/${job.genId}`;
+
+    const tick = async () => {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data.status === 'success' && data.outputUrl) {
+          setDoneUrl(data.outputUrl);
+          router.refresh();
+          return;
+        }
+        if (data.status === 'failed' || data.status === 'cancelled' || data.status === 'timeout') {
+          setError(data.error || `Run ${data.status}`);
+          setRefunded(Boolean(data.refunded));
+          router.refresh();
+          return;
+        }
+        if (Date.now() - startedAt > MAX_MS) {
+          setError(
+            lang === 'pt'
+              ? 'A geração demorou demais. Tente novamente.'
+              : lang === 'es'
+              ? 'La generación tardó demasiado. Inténtalo de nuevo.'
+              : 'Generation took too long. Please try again.'
+          );
+          return;
+        }
+        if (isVideo) {
+          setStatus(data.status ?? 'processing');
+          if (typeof data.progress === 'number') setProgress(data.progress);
+          setLiveStatus(data.liveStatus ?? null);
+        }
+        timer = setTimeout(tick, isVideo ? 4000 : 2500);
+      } catch {
+        if (cancelled) return;
+        timer = setTimeout(tick, isVideo ? 6000 : 4000);
+      }
+    };
+    timer = setTimeout(tick, 2000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.id]);
+
+  // Entregue: media + download, com ✕ para dispensar o card.
+  if (doneUrl) {
+    const isVid = job.type === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(doneUrl);
+    return (
+      <div className="border border-lime/40 bg-lime/5 rounded-xl p-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-bold tracking-widest text-lime uppercase">
+            {isVid
+              ? lang === 'pt' ? 'Vídeo pronto' : lang === 'es' ? 'Video listo' : 'Video ready'
+              : lang === 'pt' ? 'Imagem pronta' : lang === 'es' ? 'Imagen lista' : 'Image ready'}
+          </div>
+          <button
+            type="button"
+            onClick={() => onDone(job.id)}
+            aria-label="dismiss"
+            className="text-bone-mute hover:text-bone text-sm font-bold"
+          >
+            ✕
+          </button>
+        </div>
+        {isVid ? (
+          <video src={doneUrl} controls loop playsInline className="max-h-72 w-auto mx-auto rounded-lg border border-white/10" />
+        ) : (
+          <button type="button" onClick={() => onOpenImage(doneUrl)} className="block w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={doneUrl} alt="" className="max-h-72 w-auto mx-auto rounded-lg border border-white/10" />
+          </button>
+        )}
+        <div className="flex justify-center">
+          <a href={doneUrl} download className="btn-primary text-xs">↓ {t('download', lang)}</a>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="border border-red-500/30 bg-red-500/10 rounded-xl p-4 text-sm text-red-400 space-y-1.5">
+        <div className="flex items-start justify-between gap-2">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => onDone(job.id)}
+            aria-label="dismiss"
+            className="text-bone-mute hover:text-bone text-sm font-bold shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+        {refunded && (
+          <div className="text-lime text-xs font-semibold">
+            ✓{' '}
+            {lang === 'pt'
+              ? 'Créditos devolvidos automaticamente ao seu saldo.'
+              : lang === 'es'
+              ? 'Créditos devueltos automáticamente a tu saldo.'
+              : 'Credits automatically refunded to your balance.'}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (job.type === 'video') {
+    return (
+      <div className="border border-lime/30 bg-lime/5 rounded-xl p-4 text-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="font-bold text-lime flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-lime animate-pulse" />
+            {status === 'queued'
+              ? lang === 'pt' ? 'Vídeo na fila' : lang === 'es' ? 'Video en cola' : 'Video queued'
+              : lang === 'pt' ? 'Gerando vídeo' : lang === 'es' ? 'Generando video' : 'Generating video'}
+          </div>
+          <span className="font-mono text-xs text-bone-dim">{Math.round(progress * 100)}%</span>
+        </div>
+        <div className="h-2 bg-ink-900 rounded-full overflow-hidden">
+          <div className="h-full bg-lime transition-all duration-500" style={{ width: `${Math.max(2, Math.round(progress * 100))}%` }} />
+        </div>
+        {liveStatus && <p className="text-[11px] text-bone-mute font-mono truncate">{liveStatus}</p>}
+        <p className="text-xs text-bone-dim">
+          {lang === 'pt'
+            ? 'Pode gerar outros — o vídeo aparece aqui e no histórico quando ficar pronto.'
+            : lang === 'es'
+            ? 'Puedes generar otros — el video aparece aquí y en el historial cuando esté listo.'
+            : 'You can start more — the video appears here and in your history when ready.'}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-lime/30 bg-lime/5 rounded-xl p-4 text-sm space-y-3">
+      <div className="font-bold text-lime flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full bg-lime animate-pulse" />
+        {lang === 'pt' ? 'Gerando imagem' : lang === 'es' ? 'Generando imagen' : 'Generating image'}
+      </div>
+      <div className="h-2 bg-ink-900 rounded-full overflow-hidden">
+        <div className="h-full w-1/3 bg-lime/70 rounded-full animate-pulse" />
+      </div>
+      <p className="text-xs text-bone-dim">
+        {lang === 'pt'
+          ? 'Pode gerar outras — a imagem aparece aqui e no histórico quando ficar pronta.'
+          : lang === 'es'
+          ? 'Puedes generar otras — la imagen aparece aquí y en el historial cuando esté lista.'
+          : 'You can start more — the image appears here and in your history when ready.'}
+      </p>
+    </div>
+  );
+}
+
 export default function GenPanel({
   lang,
   credits,
@@ -219,16 +408,14 @@ export default function GenPanel({
   const [open, setOpen] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [freeUsed, setFreeUsed] = useState(false);
-  const [videoPoll, setVideoPoll] = useState<{
-    runId: string;
-    remaining: number;
-    status: string;
-    progress: number;
-    liveStatus: string | null;
-  } | null>(null);
-  const [imagePoll, setImagePoll] = useState<{ genId: string; remaining: number } | null>(null);
+  // Jobs em background (imagens do `create` e vídeos). Vários podem rodar juntos.
+  const [jobs, setJobs] = useState<Job[]>([]);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const removeJob = useCallback(
+    (id: string) => setJobs((prev) => prev.filter((j) => j.id !== id)),
+    []
+  );
 
   useEffect(() => {
     if (isAnon && typeof window !== 'undefined') {
@@ -236,131 +423,16 @@ export default function GenPanel({
     }
   }, [isAnon]);
 
-  useEffect(() => {
-    if (!videoPoll || result?.ok) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/video-status/${videoPoll.runId}`, { cache: 'no-store' });
-        const data = await res.json();
-        if (cancelled) return;
-
-        if (data.status === 'success' && data.outputUrl) {
-          setResult({ ok: true, outputUrl: data.outputUrl, remaining: videoPoll.remaining });
-          setVideoPoll(null);
-          router.refresh();
-          return;
-        }
-        if (data.status === 'failed' || data.status === 'cancelled' || data.status === 'timeout') {
-          setResult({
-            ok: false,
-            error: data.error || `Run ${data.status}`,
-            refunded: Boolean(data.refunded),
-          });
-          setVideoPoll(null);
-          router.refresh();
-          return;
-        }
-
-        setVideoPoll((prev) =>
-          prev
-            ? {
-                ...prev,
-                status: data.status ?? prev.status,
-                progress: typeof data.progress === 'number' ? data.progress : prev.progress,
-                liveStatus: data.liveStatus ?? prev.liveStatus,
-              }
-            : prev
-        );
-        timer = setTimeout(tick, 4000);
-      } catch {
-        if (cancelled) return;
-        timer = setTimeout(tick, 6000);
-      }
-    };
-
-    timer = setTimeout(tick, 2000);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [videoPoll, result, router]);
-
-  // Poll background image generations (SFW `create` tab).
-  useEffect(() => {
-    if (!imagePoll || result?.ok) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const startedAt = Date.now();
-    const MAX_MS = 4 * 60 * 1000;
-
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/image-status/${imagePoll.genId}`, { cache: 'no-store' });
-        const data = await res.json();
-        if (cancelled) return;
-
-        if (data.status === 'success' && data.outputUrl) {
-          setResult({ ok: true, outputUrl: data.outputUrl, remaining: imagePoll.remaining });
-          setImagePoll(null);
-          router.refresh();
-          return;
-        }
-        if (data.status === 'failed') {
-          setResult({
-            ok: false,
-            error: data.error || 'Generation failed',
-            refunded: Boolean(data.refunded),
-          });
-          setImagePoll(null);
-          router.refresh();
-          return;
-        }
-        if (Date.now() - startedAt > MAX_MS) {
-          setResult({
-            ok: false,
-            error:
-              lang === 'pt'
-                ? 'A geração demorou demais. Tente novamente.'
-                : lang === 'es'
-                ? 'La generación tardó demasiado. Inténtalo de nuevo.'
-                : 'Generation took too long. Please try again.',
-          });
-          setImagePoll(null);
-          return;
-        }
-        timer = setTimeout(tick, 2500);
-      } catch {
-        if (cancelled) return;
-        timer = setTimeout(tick, 4000);
-      }
-    };
-
-    timer = setTimeout(tick, 2000);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [imagePoll, result, router, lang]);
-
   // Religa o acompanhamento de uma geração em andamento depois de um refresh
-  // (o estado do poll vive só na memória; aqui reidratamos a partir do servidor).
+  // (o estado do job vive só na memória; aqui reidratamos a partir do servidor).
   const resumedRef = useRef(false);
   useEffect(() => {
     if (resumedRef.current || !resume) return;
     resumedRef.current = true;
     if (resume.kind === 'video') {
-      setVideoPoll({
-        runId: resume.runId,
-        remaining: credits,
-        status: 'processing',
-        progress: 0,
-        liveStatus: null,
-      });
+      setJobs((prev) => [{ id: resume.runId, type: 'video', runId: resume.runId, remaining: credits }, ...prev]);
     } else {
-      setImagePoll({ genId: resume.genId, remaining: credits });
+      setJobs((prev) => [{ id: resume.genId, type: 'image', genId: resume.genId, remaining: credits }, ...prev]);
     }
   }, [resume, credits]);
 
@@ -392,8 +464,6 @@ export default function GenPanel({
   const promptOk = editPrompt.trim().length > 1;
   const canSubmit =
     !pending &&
-    !videoPoll &&
-    !imagePoll &&
     !insufficient &&
     !blockedAnon &&
     (kind === 'create'
@@ -472,21 +542,13 @@ export default function GenPanel({
     start(async () => {
       const r = await generateAction(fd);
       if (r.ok && 'isVideo' in r && r.isVideo) {
-        setResult(null);
-        setVideoPoll({
-          runId: r.runId,
-          remaining: r.remaining,
-          status: 'queued',
-          progress: 0,
-          liveStatus: null,
-        });
+        setJobs((prev) => [{ id: r.runId, type: 'video', runId: r.runId, remaining: r.remaining }, ...prev]);
         setFiles([]);
         router.refresh();
         return;
       }
       if (r.ok && 'isAsync' in r && r.isAsync) {
-        setResult(null);
-        setImagePoll({ genId: r.genId, remaining: r.remaining });
+        setJobs((prev) => [{ id: r.genId, type: 'image', genId: r.genId, remaining: r.remaining }, ...prev]);
         setFiles([]);
         setFaceFile(null);
         setTargetFile(null);
@@ -991,52 +1053,11 @@ export default function GenPanel({
             </div>
           )}
 
-          {videoPoll && (
-            <div className="border border-lime/30 bg-lime/5 rounded-xl p-4 text-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="font-bold text-lime flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full bg-lime animate-pulse" />
-                  {videoPoll.status === 'queued'
-                    ? lang === 'pt' ? 'Vídeo na fila' : lang === 'es' ? 'Video en cola' : 'Video queued'
-                    : lang === 'pt' ? 'Gerando vídeo' : lang === 'es' ? 'Generando video' : 'Generating video'}
-                </div>
-                <span className="font-mono text-xs text-bone-dim">{Math.round((videoPoll.progress ?? 0) * 100)}%</span>
-              </div>
-              <div className="h-2 bg-ink-900 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-lime transition-all duration-500"
-                  style={{ width: `${Math.max(2, Math.round((videoPoll.progress ?? 0) * 100))}%` }}
-                />
-              </div>
-              {videoPoll.liveStatus && (
-                <p className="text-[11px] text-bone-mute font-mono truncate">{videoPoll.liveStatus}</p>
-              )}
-              <p className="text-xs text-bone-dim">
-                {lang === 'pt'
-                  ? 'Você pode fechar a aba — o vídeo aparece no histórico quando ficar pronto.'
-                  : lang === 'es'
-                  ? 'Puedes cerrar la pestaña — el video aparece en el historial cuando esté listo.'
-                  : 'You can close this tab — the video will appear in your history when ready.'}
-              </p>
-            </div>
-          )}
-
-          {imagePoll && (
-            <div className="border border-lime/30 bg-lime/5 rounded-xl p-4 text-sm space-y-3">
-              <div className="font-bold text-lime flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full bg-lime animate-pulse" />
-                {lang === 'pt' ? 'Gerando imagem' : lang === 'es' ? 'Generando imagen' : 'Generating image'}
-              </div>
-              <div className="h-2 bg-ink-900 rounded-full overflow-hidden">
-                <div className="h-full w-1/3 bg-lime/70 rounded-full animate-pulse" />
-              </div>
-              <p className="text-xs text-bone-dim">
-                {lang === 'pt'
-                  ? 'Pode deixar rodando — a imagem aparece aqui e no histórico quando ficar pronta.'
-                  : lang === 'es'
-                  ? 'Puedes dejarlo corriendo — la imagen aparece aquí y en el historial cuando esté lista.'
-                  : 'Leave it running — the image appears here and in your history when ready.'}
-              </p>
+          {jobs.length > 0 && (
+            <div className="space-y-3">
+              {jobs.map((j) => (
+                <GenJob key={j.id} job={j} lang={lang} onDone={removeJob} onOpenImage={setOpen} />
+              ))}
             </div>
           )}
 
@@ -1089,16 +1110,10 @@ export default function GenPanel({
 
           <div className="mt-auto pt-6">
             <button type="submit" disabled={!canSubmit} className="btn-primary w-full">
-              {pending || videoPoll || imagePoll ? (
+              {pending ? (
                 <span className="inline-flex items-center gap-2">
                   <span className="inline-block w-4 h-4 border-2 border-ink-900/30 border-t-ink-900 rounded-full animate-spin" />
-                  {videoPoll
-                    ? videoPoll.status === 'queued'
-                      ? lang === 'pt' ? 'Na fila…' : lang === 'es' ? 'En cola…' : 'Queued…'
-                      : `${Math.round((videoPoll.progress ?? 0) * 100)}%`
-                    : imagePoll
-                    ? lang === 'pt' ? 'Gerando…' : lang === 'es' ? 'Generando…' : 'Generating…'
-                    : null}
+                  {lang === 'pt' ? 'Enviando…' : lang === 'es' ? 'Enviando…' : 'Sending…'}
                 </span>
               ) : isAnon || willBeFree ? (
                 <>{lang === 'pt' ? 'Gerar grátis' : lang === 'es' ? 'Generar gratis' : 'Render free'} →</>
@@ -1106,11 +1121,6 @@ export default function GenPanel({
                 <>{t('generate', lang)} → {cost} CR</>
               )}
             </button>
-            {videoPoll && videoPoll.liveStatus && (
-              <p className="text-[11px] text-bone-mute mt-2 text-center font-mono truncate">
-                {videoPoll.liveStatus}
-              </p>
-            )}
             <p className="text-xs text-bone-mute mt-2.5 text-center">
               {kind === 'video'
                 ? lang === 'pt' ? '~ 2 a 3 min' : lang === 'es' ? '~ 2 a 3 min' : '~ 2 to 3 min'

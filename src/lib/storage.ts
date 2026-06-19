@@ -1,11 +1,38 @@
 import { createServiceClient } from '@/lib/supabase/server';
 
-function extFromContentType(ct: string | null): string {
-  if (!ct) return 'jpg';
+// Extensão -> content-type para os formatos que geramos (imagem e vídeo).
+const EXT_TO_CT: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+};
+
+function extFromContentType(ct: string | null): string | null {
+  if (!ct) return null;
   if (ct.includes('png')) return 'png';
   if (ct.includes('webp')) return 'webp';
   if (ct.includes('mp4')) return 'mp4';
-  return 'jpg';
+  if (ct.includes('webm')) return 'webm';
+  if (ct.includes('quicktime')) return 'mov';
+  if (ct.includes('jpeg') || ct.includes('jpg')) return 'jpg';
+  return null;
+}
+
+// Extensão a partir da URL de origem. Importante para vídeos: o S3 da
+// ComfyDeploy serve os .mp4 como `application/octet-stream`, então confiar só
+// no content-type salvaria o vídeo como .jpg.
+function extFromUrl(url: string): string | null {
+  try {
+    const path = new URL(url).pathname.toLowerCase();
+    const m = path.match(/\.([a-z0-9]{2,4})$/);
+    return m && EXT_TO_CT[m[1]] ? m[1] : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function uploadToSupabase(
@@ -14,9 +41,11 @@ export async function uploadToSupabase(
 ): Promise<string> {
   const res = await fetch(remoteUrl);
   if (!res.ok) throw new Error('storage_fetch_failed');
-  const ct = res.headers.get('content-type');
+  const ctHeader = res.headers.get('content-type');
   const bytes = new Uint8Array(await res.arrayBuffer());
-  return uploadBufferToSupabase(bytes, pathHint, ct ?? 'image/jpeg');
+  // A extensão da URL tem prioridade (CDNs costumam mandar octet-stream).
+  const ext = extFromUrl(remoteUrl) ?? extFromContentType(ctHeader) ?? 'jpg';
+  return uploadBufferToSupabase(bytes, pathHint, EXT_TO_CT[ext], ext);
 }
 
 /**
@@ -27,15 +56,16 @@ export async function uploadToSupabase(
 export async function uploadBufferToSupabase(
   bytes: Uint8Array,
   pathHint = 'image',
-  contentType = 'image/jpeg'
+  contentType = 'image/jpeg',
+  extOverride?: string
 ): Promise<string> {
-  const ext = extFromContentType(contentType);
+  const ext = extOverride ?? extFromContentType(contentType) ?? 'jpg';
   const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'generations';
   const key = `${pathHint}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
   const supabase = createServiceClient();
   const { error } = await supabase.storage.from(bucket).upload(key, bytes, {
-    contentType,
+    contentType: contentType || EXT_TO_CT[ext] || 'application/octet-stream',
     upsert: false,
   });
   if (error) throw new Error(`storage_upload_failed_${error.message}`);
