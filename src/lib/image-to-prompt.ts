@@ -11,8 +11,10 @@
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 const API_KEY = process.env.OPENAI_API_KEY ?? '';
-// Most advanced vision-capable model on the account. Override with OPENAI_VISION_MODEL.
-const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.5';
+// Fast vision-capable model. The previous default (a reasoning model) regularly
+// blew past the function timeout, killing the request (status 0 → "Falha ao
+// processar a imagem."). gpt-4o is non-reasoning and fast. Override with OPENAI_VISION_MODEL.
+const MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
 
 // GPT-5 / o-series reasoning models use `max_completion_tokens` and only accept
 // the default temperature (1); GPT-4.x use `max_tokens` and allow custom temps.
