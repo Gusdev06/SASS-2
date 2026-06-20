@@ -292,3 +292,43 @@ begin
   );
 end;
 $$;
+
+-- 7) Admin: liberar a cota grátis COMPLETA para um usuário (manual) ----------
+-- Equivale a "dar todas as gerações grátis de uma vez": marca o e-mail do
+-- usuário como comprador (entitlement, idempotente) e reabre a janela de 24h
+-- com TODOS os contadores zerados -> cota cheia disponível na hora
+-- (5 nano_pro, 5 nano_v2, 2 replicate, 2 undress, 2 edit, 2 faceswap).
+create or replace function public.admin_grant_full_free_quota(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_email text;
+  v_now   timestamptz := now();
+begin
+  select lower(btrim(email)) into v_email
+    from public.profiles where user_id = p_user_id;
+  if v_email is null or v_email = '' then
+    return jsonb_build_object('ok', false, 'reason', 'no_email');
+  end if;
+
+  -- Libera o e-mail (idempotente) para destravar a cota diária.
+  insert into public.course_entitlements (email, source)
+  values (v_email, 'admin-manual')
+  on conflict (email) do update
+     set source = 'admin-manual', granted_at = now();
+
+  -- Reabre a janela zerando os contadores (cota cheia agora).
+  insert into public.free_quota (user_id, window_start)
+  values (p_user_id, v_now)
+  on conflict (user_id) do update
+     set window_start = v_now,
+         nano_pro = 0, nano_v2 = 0, replicate = 0,
+         undress = 0, edit = 0, faceswap = 0,
+         updated_at = v_now;
+
+  return jsonb_build_object('ok', true, 'email', v_email);
+end;
+$$;

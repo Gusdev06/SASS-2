@@ -1,7 +1,12 @@
 'use client';
 
 import { useActionState, useEffect, useState } from 'react';
-import { adjustCreditsAction, setBannedAction, type AdminState } from '@/lib/actions/admin';
+import {
+  adjustCreditsAction,
+  grantFullFreeQuotaAction,
+  setBannedAction,
+  type AdminState,
+} from '@/lib/actions/admin';
 
 // Atalhos de crédito (espelham os tamanhos de pacote mais comuns).
 const QUICK_CREDITS = [30, 75, 150, 350];
@@ -20,6 +25,10 @@ export default function UserRow({ user }: { user: AdminUser }) {
     {}
   );
   const [banState, setBanned, banPending] = useActionState<AdminState, FormData>(setBannedAction, {});
+  const [quotaState, grantQuota, quotaPending] = useActionState<AdminState, FormData>(
+    grantFullFreeQuotaAction,
+    {}
+  );
   const [delta, setDelta] = useState('');
 
   // Limpa o campo depois de creditar com sucesso.
@@ -28,8 +37,14 @@ export default function UserRow({ user }: { user: AdminUser }) {
   }, [creditState]);
 
   const created = new Date(user.created_at).toLocaleDateString('pt-BR');
-  const status = creditState.error ?? creditState.info ?? banState.error ?? banState.info;
-  const statusIsError = Boolean(creditState.error ?? banState.error);
+  const status =
+    creditState.error ??
+    creditState.info ??
+    quotaState.error ??
+    quotaState.info ??
+    banState.error ??
+    banState.info;
+  const statusIsError = Boolean(creditState.error ?? quotaState.error ?? banState.error);
 
   return (
     <div className="card flex flex-col gap-3">
@@ -79,6 +94,21 @@ export default function UserRow({ user }: { user: AdminUser }) {
             className="btn-primary !py-2 !px-3 text-sm disabled:opacity-50"
           >
             {creditsPending ? '...' : 'Dar créditos'}
+          </button>
+        </form>
+
+        <form action={grantQuota} className="flex flex-wrap items-center gap-2">
+          <input type="hidden" name="user_id" value={user.user_id} />
+          <span className="text-[10px] font-bold tracking-widest text-bone-mute uppercase mr-1">
+            Cota grátis
+          </span>
+          <button
+            type="submit"
+            disabled={quotaPending}
+            className="!py-2 !px-3 text-sm rounded-lg font-semibold bg-lime/10 text-lime hover:bg-lime/20 transition-colors disabled:opacity-50"
+            title="Libera 5 Nano Pro + 5 Nano 2 + 2 Replicate + 2 Undress + 2 Edit + 2 Faceswap na hora"
+          >
+            {quotaPending ? '...' : 'Dar todas as gerações grátis'}
           </button>
         </form>
 
