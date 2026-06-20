@@ -54,6 +54,33 @@ export async function grantFullFreeQuotaAction(_prev: AdminState, formData: Form
 }
 
 /**
+ * Promove ou remove um usuário como admin (profiles.is_admin). Vários usuários
+ * podem ser admin ao mesmo tempo. Você não pode remover o seu próprio acesso
+ * (evita lockout acidental).
+ */
+export async function setAdminAction(_prev: AdminState, formData: FormData): Promise<AdminState> {
+  const admin = await getAdminUser();
+  if (!admin) return { error: 'Não autorizado.' };
+
+  const userId = String(formData.get('user_id') ?? '').trim();
+  const makeAdmin = String(formData.get('is_admin') ?? '') === 'true';
+  if (!userId) return { error: 'Usuário inválido.' };
+  if (userId === admin.id && !makeAdmin) {
+    return { error: 'Você não pode remover o seu próprio acesso de admin.' };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from('profiles')
+    .update({ is_admin: makeAdmin, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+  if (error) return { error: error.message };
+
+  revalidatePath('/admin/users');
+  return { info: makeAdmin ? 'Usuário promovido a admin.' : 'Acesso de admin removido.' };
+}
+
+/**
  * Ban or unban a user. Banned users are blocked from debiting credits by the
  * debit_credits RPC (which checks `banned = false`).
  */

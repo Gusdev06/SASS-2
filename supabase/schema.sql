@@ -16,6 +16,11 @@ create table if not exists public.profiles (
 );
 
 alter table public.profiles add column if not exists username text;
+-- Admin é controlado pelo banco (não mais só por env). Vários usuários podem ser
+-- admin simultaneamente. Promova/remova via /admin/users ou direto no SQL:
+--   update public.profiles set is_admin = true where email = 'fulano@exemplo.com';
+alter table public.profiles add column if not exists is_admin boolean not null default false;
+create index if not exists profiles_admin_idx on public.profiles(is_admin) where is_admin = true;
 
 create table if not exists public.generations (
   id            uuid primary key default gen_random_uuid(),

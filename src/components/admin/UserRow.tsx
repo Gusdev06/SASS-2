@@ -5,6 +5,7 @@ import {
   adjustCreditsAction,
   grantFullFreeQuotaAction,
   setBannedAction,
+  setAdminAction,
   type AdminState,
 } from '@/lib/actions/admin';
 
@@ -16,10 +17,11 @@ export type AdminUser = {
   email: string | null;
   credits: number;
   banned: boolean;
+  is_admin: boolean;
   created_at: string;
 };
 
-export default function UserRow({ user }: { user: AdminUser }) {
+export default function UserRow({ user, isSelf = false }: { user: AdminUser; isSelf?: boolean }) {
   const [creditState, adjustCredits, creditsPending] = useActionState<AdminState, FormData>(
     adjustCreditsAction,
     {}
@@ -29,6 +31,7 @@ export default function UserRow({ user }: { user: AdminUser }) {
     grantFullFreeQuotaAction,
     {}
   );
+  const [adminState, setAdmin, adminPending] = useActionState<AdminState, FormData>(setAdminAction, {});
   const [delta, setDelta] = useState('');
 
   // Limpa o campo depois de creditar com sucesso.
@@ -42,9 +45,13 @@ export default function UserRow({ user }: { user: AdminUser }) {
     creditState.info ??
     quotaState.error ??
     quotaState.info ??
+    adminState.error ??
+    adminState.info ??
     banState.error ??
     banState.info;
-  const statusIsError = Boolean(creditState.error ?? quotaState.error ?? banState.error);
+  const statusIsError = Boolean(
+    creditState.error ?? quotaState.error ?? adminState.error ?? banState.error
+  );
 
   return (
     <div className="card flex flex-col gap-3">
@@ -56,6 +63,9 @@ export default function UserRow({ user }: { user: AdminUser }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="pill">{user.credits} cr</span>
+          {user.is_admin && (
+            <span className="px-2 py-1 rounded-full text-[11px] font-bold bg-lime/15 text-lime">ADMIN</span>
+          )}
           {user.banned && (
             <span className="px-2 py-1 rounded-full text-[11px] font-bold bg-ember/15 text-ember">BANIDO</span>
           )}
@@ -112,21 +122,40 @@ export default function UserRow({ user }: { user: AdminUser }) {
           </button>
         </form>
 
-        <form action={setBanned}>
-          <input type="hidden" name="user_id" value={user.user_id} />
-          <input type="hidden" name="banned" value={user.banned ? 'false' : 'true'} />
-          <button
-            type="submit"
-            disabled={banPending}
-            className={`!py-2 !px-3 text-sm rounded-lg font-semibold transition-colors disabled:opacity-50 ${
-              user.banned
-                ? 'bg-lime/10 text-lime hover:bg-lime/20'
-                : 'bg-ember/10 text-ember hover:bg-ember/20'
-            }`}
-          >
-            {banPending ? '...' : user.banned ? 'Reativar' : 'Banir'}
-          </button>
-        </form>
+        <div className="flex flex-wrap items-center gap-2">
+          <form action={setAdmin}>
+            <input type="hidden" name="user_id" value={user.user_id} />
+            <input type="hidden" name="is_admin" value={user.is_admin ? 'false' : 'true'} />
+            <button
+              type="submit"
+              disabled={adminPending || (user.is_admin && isSelf)}
+              title={user.is_admin && isSelf ? 'Você não pode remover o seu próprio acesso' : undefined}
+              className={`!py-2 !px-3 text-sm rounded-lg font-semibold transition-colors disabled:opacity-40 ${
+                user.is_admin
+                  ? 'bg-white/10 text-bone-dim hover:bg-white/20'
+                  : 'bg-lime/10 text-lime hover:bg-lime/20'
+              }`}
+            >
+              {adminPending ? '...' : user.is_admin ? 'Remover admin' : 'Tornar admin'}
+            </button>
+          </form>
+
+          <form action={setBanned}>
+            <input type="hidden" name="user_id" value={user.user_id} />
+            <input type="hidden" name="banned" value={user.banned ? 'false' : 'true'} />
+            <button
+              type="submit"
+              disabled={banPending}
+              className={`!py-2 !px-3 text-sm rounded-lg font-semibold transition-colors disabled:opacity-50 ${
+                user.banned
+                  ? 'bg-lime/10 text-lime hover:bg-lime/20'
+                  : 'bg-ember/10 text-ember hover:bg-ember/20'
+              }`}
+            >
+              {banPending ? '...' : user.banned ? 'Reativar' : 'Banir'}
+            </button>
+          </form>
+        </div>
       </div>
 
       {status && (

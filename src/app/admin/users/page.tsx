@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server';
+import { getAdminUser } from '@/lib/admin';
 import UserRow, { type AdminUser } from '@/components/admin/UserRow';
 
 export const dynamic = 'force-dynamic';
@@ -13,10 +14,11 @@ export default async function AdminUsersPage({
   const { q } = await searchParams;
   const search = (q ?? '').trim();
 
+  const admin = await getAdminUser();
   const service = createServiceClient();
   let query = service
     .from('profiles')
-    .select('user_id, email, credits, banned, created_at')
+    .select('user_id, email, credits, banned, is_admin, created_at')
     .order('created_at', { ascending: false })
     .limit(PAGE_SIZE);
 
@@ -53,7 +55,7 @@ export default async function AdminUsersPage({
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {(users ?? []).map((u) => (
-          <UserRow key={u.user_id} user={u as AdminUser} />
+          <UserRow key={u.user_id} user={u as AdminUser} isSelf={u.user_id === admin?.id} />
         ))}
       </section>
 
