@@ -19,6 +19,7 @@ import {
   type NanoBananaOptions,
 } from '@/lib/vertex-image';
 import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/gpt-image';
+import { generateImage as generateKie, KIE_MODELS, type KieOptions } from '@/lib/kie-image';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration } from '@/lib/storage';
 import { consumeFreeQuota, refundFreeQuota, type FreeBucket } from '@/lib/free-quota';
@@ -124,7 +125,7 @@ function pickPrompt(kind: Kind, customPrompt: string | null): string {
  * (Vertex AI / Gemini) or GPT Image (OpenAI); every other image flow stays on
  * Replicate (Seedream).
  */
-function runImageEngine(
+function runPrimaryEngine(
   kind: Kind,
   prompt: string,
   inputUrls: string[],
@@ -141,6 +142,54 @@ function runImageEngine(
     return generateNanoBanana(prompt, inputUrls, opts.nano);
   }
   return generateImage(prompt, inputUrls);
+}
+
+/**
+ * O fallback kie.ai cobre SOMENTE os fluxos que rodam no Nano Banana (Pro/2):
+ * o tab `create` com engine `nano` e o Face Swap com NSFW desligado. Devolve as
+ * opções do fallback (Nano Banana 2 -> `nano-banana-2`, senão `nano-banana-pro`)
+ * ou `null` quando o engine primário não é Nano Banana.
+ */
+function kieFallbackOpts(kind: Kind, opts?: CreateOpts): KieOptions | null {
+  if (opts?.engine !== 'nano') return null;
+  if (kind !== 'create' && kind !== 'faceswap') return null;
+  return {
+    model: opts.nano.model === NANO_BANANA_MODELS.v2 ? KIE_MODELS.v2 : KIE_MODELS.pro,
+    aspectRatio: opts.nano.aspectRatio,
+    resolution: opts.nano.imageSize,
+  };
+}
+
+/**
+ * Roda o engine primário. Se ele for Nano Banana (Pro/2) e falhar (timeout,
+ * 5xx, rate limit, etc.), tenta gerar a mesma imagem pela API do kie.ai como
+ * fallback. Os demais engines (GPT, Replicate/NSFW) não têm fallback. Só re-lança
+ * o erro original se o fallback também falhar.
+ */
+async function runImageEngine(
+  kind: Kind,
+  prompt: string,
+  inputUrls: string[],
+  opts?: CreateOpts
+): Promise<string> {
+  try {
+    return await runPrimaryEngine(kind, prompt, inputUrls, opts);
+  } catch (primaryErr) {
+    const kieOpts = kieFallbackOpts(kind, opts);
+    if (!kieOpts) throw primaryErr;
+    const reason = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    console.error('[generate] nano banana failed, falling back to kie.ai', { kind, reason });
+    try {
+      return await generateKie(prompt, inputUrls, kieOpts);
+    } catch (kieErr) {
+      console.error('[generate] kie.ai fallback also failed', {
+        kind,
+        reason: kieErr instanceof Error ? kieErr.message : String(kieErr),
+      });
+      // Mantém o erro original do Nano Banana como causa visível ao usuário.
+      throw primaryErr;
+    }
+  }
 }
 
 /**
