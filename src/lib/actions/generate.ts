@@ -20,8 +20,9 @@ import {
 } from '@/lib/vertex-image';
 import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/gpt-image';
 import { generateImage as generateKie, KIE_MODELS, type KieOptions } from '@/lib/kie-image';
+import { queueKlingVideo } from '@/lib/kie-video';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
-import { persistGeneration } from '@/lib/storage';
+import { persistGeneration, uploadBufferToSupabase } from '@/lib/storage';
 import { consumeFreeQuota, refundFreeQuota, type FreeBucket } from '@/lib/free-quota';
 import {
   CREDITS_PER_IMAGE,
@@ -81,7 +82,7 @@ const MAX_FILE_BYTES = 12 * 1024 * 1024;
 /** Max reference images accepted on the `create` tab (Nano Banana / Seedream / GPT edits). */
 const MAX_CREATE_IMAGES = 8;
 const ANON_COOKIE = 'anon_used';
-type Kind = 'undress' | 'faceswap' | 'enhance' | 'edit' | 'video' | 'create';
+type Kind = 'undress' | 'faceswap' | 'enhance' | 'edit' | 'video' | 'video_kling' | 'create';
 
 const NANO_BANANA_VALUES = new Set<string>(Object.values(NANO_BANANA_MODELS));
 const ASPECT_VALUES = new Set<string>(ASPECT_RATIOS);
@@ -177,17 +178,16 @@ async function runImageEngine(
   } catch (primaryErr) {
     const kieOpts = kieFallbackOpts(kind, opts);
     if (!kieOpts) throw primaryErr;
-    const reason = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-    console.error('[generate] nano banana failed, falling back to kie.ai', { kind, reason });
+    const primaryReason = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
+    console.error('[generate] nano banana failed, falling back to kie.ai', { kind, primaryReason });
     try {
       return await generateKie(prompt, inputUrls, kieOpts);
     } catch (kieErr) {
-      console.error('[generate] kie.ai fallback also failed', {
-        kind,
-        reason: kieErr instanceof Error ? kieErr.message : String(kieErr),
-      });
-      // Mantém o erro original do Nano Banana como causa visível ao usuário.
-      throw primaryErr;
+      const kieReason = kieErr instanceof Error ? kieErr.message : String(kieErr);
+      console.error('[generate] kie.ai fallback also failed', { kind, primaryReason, kieReason });
+      // Surfacing AMBAS as causas — a do Nano Banana e a do fallback — pra que o
+      // motivo real apareça em generations.error / no painel admin.
+      throw new Error(`Nano Banana falhou (${primaryReason}); fallback kie.ai falhou (${kieReason})`);
     }
   }
 }
@@ -233,9 +233,11 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const user = userData.user;
 
   const kind = String(formData.get('kind') ?? '') as Kind;
-  if (!['undress', 'faceswap', 'enhance', 'edit', 'video', 'create'].includes(kind)) {
+  if (!['undress', 'faceswap', 'enhance', 'edit', 'video', 'video_kling', 'create'].includes(kind)) {
     return { ok: false, error: 'Tipo inválido.' };
   }
+  // Os dois tabs de vídeo: `video` (ComfyDeploy/NSFW) e `video_kling` (Kling via kie).
+  const isVideoKind = kind === 'video' || kind === 'video_kling';
 
   const customPrompt = formData.get('prompt') ? String(formData.get('prompt')) : null;
   const reusedUrl = formData.get('reused_url') ? String(formData.get('reused_url')) : null;
@@ -307,7 +309,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   let videoInputUrl: string | null = null;
   if (reusedUrl) {
     inputUrls = [reusedUrl];
-    if (kind === 'video') videoInputUrl = reusedUrl;
+    if (isVideoKind) videoInputUrl = reusedUrl;
   } else {
     const files = formData.getAll('images').filter((f): f is File => f instanceof File && f.size > 0);
     // `create` accepts an optional reference image; others require their inputs.
@@ -323,6 +325,18 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
         }
         const buf = new Uint8Array(await f.arrayBuffer());
         videoInputUrl = await uploadAsset(buf, f.type || 'image/jpeg', f.name || 'input.jpg');
+      } else if (kind === 'video_kling') {
+        const f = files[0];
+        if (f.size > MAX_FILE_BYTES) {
+          return { ok: false, error: `imagem muito grande (max ${MAX_FILE_BYTES / 1024 / 1024}MB)` };
+        }
+        const buf = new Uint8Array(await f.arrayBuffer());
+        // Kling (kie) busca a imagem por URL pública -> sobe pro Supabase Storage.
+        videoInputUrl = await uploadBufferToSupabase(
+          buf,
+          `${user?.id ?? 'anon'}/video-input`,
+          f.type || 'image/jpeg'
+        );
       } else if (kind === 'create') {
         inputUrls = files.length ? await filesToDataUris(files.slice(0, MAX_CREATE_IMAGES)) : [];
       } else {
@@ -334,7 +348,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   }
 
   if (!user) {
-    if (kind === 'video') {
+    if (isVideoKind) {
       return { ok: false, error: 'Vídeo requer conta. Cadastre-se para continuar.' };
     }
     const jar = await cookies();
@@ -364,7 +378,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const freeBucket = freeBucketFor(kind, createOpts);
   const usedFree = freeBucket ? await consumeFreeQuota(user.id, freeBucket) : false;
 
-  const cost = usedFree ? 0 : kind === 'video' ? videoCost(videoDuration) : CREDITS_PER_IMAGE;
+  const cost = usedFree ? 0 : isVideoKind ? videoCost(videoDuration) : CREDITS_PER_IMAGE;
   if (!usedFree) {
     const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
       p_user_id: user.id,
@@ -439,6 +453,26 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
         .eq('user_id', user.id)
         .single();
       return { ok: true, isVideo: true, runId, remaining: profile?.credits ?? 0 };
+    }
+
+    if (kind === 'video_kling') {
+      if (!videoInputUrl) throw new Error('Imagem de entrada ausente.');
+      // Kling V3 Turbo via kie.ai — assíncrono, sem fallback. Marcador `kie:<taskId>`.
+      const taskId = await queueKlingVideo({
+        imageUrl: videoInputUrl,
+        prompt,
+        duration: videoDuration,
+      });
+      await service
+        .from('generations')
+        .update({ input_urls: [`kie:${taskId}`] })
+        .eq('id', genId);
+      const { data: profile } = await service
+        .from('profiles')
+        .select('credits')
+        .eq('user_id', user.id)
+        .single();
+      return { ok: true, isVideo: true, runId: taskId, remaining: profile?.credits ?? 0 };
     }
 
     const rawUrl = await runImageEngine(kind, prompt, inputUrls, createOpts);

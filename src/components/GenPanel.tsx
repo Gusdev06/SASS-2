@@ -32,14 +32,15 @@ const KIND_BUCKET: Partial<Record<Kind, FreeBucket>> = {
   faceswap: 'faceswap',
 };
 
-type Kind = 'enhance' | 'undress' | 'faceswap' | 'edit' | 'video' | 'create';
+type Kind = 'enhance' | 'undress' | 'faceswap' | 'edit' | 'video' | 'video_kling' | 'create';
 
 const TABS: { id: Kind; en: string; pt: string; es: string; icon: string }[] = [
   { id: 'create', en: 'Create', pt: 'Criar', es: 'Crear', icon: '🍌' },
   { id: 'undress', en: 'Undress', pt: 'Undress', es: 'Undress', icon: '🔥' },
   { id: 'faceswap', en: 'Face Swap', pt: 'Face Swap', es: 'Face Swap', icon: '🎭' },
   { id: 'edit', en: 'Edit', pt: 'Editar', es: 'Editar', icon: '✏️' },
-  { id: 'video', en: 'Video', pt: 'Vídeo', es: 'Video', icon: '🎬' },
+  { id: 'video_kling', en: 'Video', pt: 'Vídeo', es: 'Video', icon: '🎬' },
+  { id: 'video', en: 'Video NSFW', pt: 'Vídeo NSFW', es: 'Video NSFW', icon: '🔞' },
 ];
 
 // SFW image models. Only shown on the `create` tab.
@@ -457,7 +458,10 @@ export default function GenPanel({
   // `create` aceita várias imagens de referência (todas opcionais); os demais
   // fluxos têm contagem fixa (faceswap = 2, resto = 1).
   const maxFiles = kind === 'create' ? 8 : expectedFiles;
-  const cost = kind === 'video' ? videoCost(duration) : CREDITS_PER_IMAGE;
+  // Os dois tabs de vídeo (Kling = `video_kling` e NSFW/ComfyDeploy = `video`)
+  // compartilham a mesma UI: prompt + 1 imagem + duração.
+  const isVideoKind = kind === 'video' || kind === 'video_kling';
+  const cost = isVideoKind ? videoCost(duration) : CREDITS_PER_IMAGE;
 
   // Cota grátis diária (compradores do curso). Só vale no tab `create` p/ os
   // modelos Nano/Replicate. Esgotou -> a geração passa a custar créditos.
@@ -473,9 +477,9 @@ export default function GenPanel({
   // Face Swap needs two distinct inputs, so it stays upload-only.
   const canPickHistory = !isAnon && kind !== 'faceswap';
   const showUpload = !(canPickHistory && reusedUrl);
-  const blockedAnon = isAnon && (freeUsed || kind === 'video');
+  const blockedAnon = isAnon && (freeUsed || isVideoKind);
   const insufficient = !isAnon && !willBeFree && credits < cost;
-  const needsPrompt = kind === 'edit' || kind === 'video' || kind === 'create';
+  const needsPrompt = kind === 'edit' || isVideoKind || kind === 'create';
   const promptOk = editPrompt.trim().length > 1;
   const canSubmit =
     !pending &&
@@ -527,10 +531,10 @@ export default function GenPanel({
     e.preventDefault();
     const fd = new FormData();
     fd.set('kind', kind);
-    if (kind === 'edit' || kind === 'video' || kind === 'create') {
+    if (kind === 'edit' || isVideoKind || kind === 'create') {
       fd.set('prompt', editPrompt);
     }
-    if (kind === 'video') fd.set('duration', String(duration));
+    if (isVideoKind) fd.set('duration', String(duration));
     // A reused image (from history or a prior result) is a valid input for
     // every single-image flow except Face Swap, which needs two inputs.
     if (reusedUrl && kind !== 'faceswap') fd.set('reused_url', reusedUrl);
@@ -631,11 +635,6 @@ export default function GenPanel({
             >
               <span className="mr-2">{tb.icon}</span>
               {labelFor(tb, lang)}
-              {tb.id === 'video' && (
-                <span className="ml-1.5 text-[10px] font-bold text-rose-400 align-middle">
-                  (NSFW)
-                </span>
-              )}
               {tabFree !== null && (
                 <span
                   className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle ${
@@ -980,7 +979,7 @@ export default function GenPanel({
           {needsPrompt && (
             <div>
               <label className="field-label">
-                {kind === 'video'
+                {isVideoKind
                   ? lang === 'pt'
                     ? 'Descreva o que deve acontecer no vídeo.'
                     : lang === 'es'
@@ -997,9 +996,9 @@ export default function GenPanel({
               <textarea
                 value={editPrompt}
                 onChange={(e) => setEditPrompt(e.target.value)}
-                rows={kind === 'video' ? 4 : 3}
+                rows={isVideoKind ? 4 : 3}
                 placeholder={
-                  kind === 'video'
+                  isVideoKind
                     ? lang === 'pt'
                       ? 'Ex: a mulher caminha lentamente em direção à câmera, balançando os cabelos'
                       : lang === 'es'
@@ -1022,7 +1021,7 @@ export default function GenPanel({
             </div>
           )}
 
-          {kind === 'video' && (
+          {isVideoKind && (
             <div>
               <label className="field-label">
                 {lang === 'pt' ? 'Duração' : lang === 'es' ? 'Duración' : 'Duration'}

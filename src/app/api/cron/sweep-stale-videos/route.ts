@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { getRun } from '@/lib/comfydeploy';
+import { findVideoMarker, resolveVideoMarker } from '@/lib/video';
 import { persistGeneration } from '@/lib/storage';
 
 export const runtime = 'nodejs';
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   const { data: rows, error } = await service
     .from('generations')
     .select('id, user_id, input_urls, created_at')
-    .eq('kind', 'video')
+    .in('kind', ['video', 'video_kling'])
     .eq('status', 'pending')
     .lt('created_at', cutoff)
     .order('created_at', { ascending: true })
@@ -46,8 +46,8 @@ export async function GET(req: NextRequest) {
 
   for (const row of rows ?? []) {
     results.checked += 1;
-    const runMarker = (row.input_urls ?? []).find((u: string) => u.startsWith('run:'));
-    if (!runMarker) {
+    const marker = findVideoMarker(row.input_urls);
+    if (!marker) {
       const { data: refunded } = await service.rpc('refund_generation', {
         p_gen_id: row.id,
         p_reason: 'missing run id',
@@ -55,34 +55,26 @@ export async function GET(req: NextRequest) {
       if (refunded) results.refunded += 1;
       continue;
     }
-    const runId = runMarker.slice(4);
 
     try {
-      const run = await getRun(runId);
-      if (run.status === 'success') {
-        const url = run.outputs?.[0]?.data?.files?.[0]?.url;
-        if (url) {
-          const storedUrl = await persistGeneration(url, `${row.user_id}/video`);
-          await service
-            .from('generations')
-            .update({ output_url: storedUrl, status: 'succeeded' })
-            .eq('id', row.id);
-          results.succeeded += 1;
-        } else {
-          const { data: refunded } = await service.rpc('refund_generation', {
-            p_gen_id: row.id,
-            p_reason: 'success without output',
-          });
-          if (refunded) results.refunded += 1;
-        }
-      } else if (
-        run.status === 'failed' ||
-        run.status === 'cancelled' ||
-        run.status === 'timeout'
-      ) {
+      const res = await resolveVideoMarker(marker);
+      if (res.status === 'success') {
+        const storedUrl = await persistGeneration(res.url, `${row.user_id}/video`);
+        await service
+          .from('generations')
+          .update({ output_url: storedUrl, status: 'succeeded' })
+          .eq('id', row.id);
+        results.succeeded += 1;
+      } else if (res.status === 'success_no_output') {
         const { data: refunded } = await service.rpc('refund_generation', {
           p_gen_id: row.id,
-          p_reason: `Run ${run.status}`,
+          p_reason: 'success without output',
+        });
+        if (refunded) results.refunded += 1;
+      } else if (res.status === 'failed') {
+        const { data: refunded } = await service.rpc('refund_generation', {
+          p_gen_id: row.id,
+          p_reason: res.reason,
         });
         if (refunded) results.refunded += 1;
       } else {

@@ -13,7 +13,7 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 const STATUSES = ['pending', 'succeeded', 'failed', 'refunded'] as const;
-const KINDS = ['create', 'undress', 'faceswap', 'edit', 'enhance', 'video'] as const;
+const KINDS = ['create', 'undress', 'faceswap', 'edit', 'enhance', 'video', 'video_kling'] as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

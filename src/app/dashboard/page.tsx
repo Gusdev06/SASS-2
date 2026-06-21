@@ -100,8 +100,11 @@ export default async function DashboardPage() {
   const pending = pendingRows?.[0];
   let resume: { kind: 'video'; runId: string } | { kind: 'image'; genId: string } | null = null;
   if (pending) {
-    if (pending.kind === 'video') {
-      const marker = (pending.input_urls ?? []).find((u: string) => u.startsWith('run:'));
+    if (pending.kind === 'video' || pending.kind === 'video_kling') {
+      // Marcador do backend de vídeo: `kie:<taskId>` (Kling) ou `run:<runId>` (ComfyDeploy).
+      const marker = (pending.input_urls ?? []).find(
+        (u: string) => u.startsWith('kie:') || u.startsWith('run:')
+      );
       if (marker) resume = { kind: 'video', runId: marker.slice(4) };
     } else {
       resume = { kind: 'image', genId: pending.id };
