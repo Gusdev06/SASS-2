@@ -10,7 +10,7 @@ import GalleryPicker from './GalleryPicker';
 import { t, type Lang } from '@/lib/i18n';
 import { readRenderUrl } from '@/lib/dnd';
 import {
-  CREDITS_PER_IMAGE,
+  imageCost,
   VIDEO_DURATIONS,
   DEFAULT_VIDEO_DURATION,
   videoCost,
@@ -505,7 +505,7 @@ export default function GenPanel({
   // Os dois tabs de vídeo (Kling = `video_kling` e NSFW/ComfyDeploy = `video`)
   // compartilham a mesma UI: prompt + 1 imagem + duração.
   const isVideoKind = kind === 'video' || kind === 'video_kling';
-  const cost = isVideoKind ? videoCost(duration) : CREDITS_PER_IMAGE;
+  const cost = isVideoKind ? videoCost(duration) : imageCost(kind, model);
 
   // Cota grátis diária (compradores do curso). Só vale no tab `create` p/ os
   // modelos Nano/Replicate. Esgotou -> a geração passa a custar créditos.
@@ -613,22 +613,26 @@ export default function GenPanel({
         fd.set('image_size', nsfwSize);
       }
     }
-    if (kind === 'faceswap') {
-      // Ordem importa no backend: [0] = rosto, [1] = cena alvo.
-      if (faceFile) fd.append('images', faceFile);
-      if (targetFile) fd.append('images', targetFile);
-      if (faceswapNsfw) fd.set('nsfw', '1');
-    } else if (!isVideoKind) {
-      // Vídeo é tratado no bloco async abaixo (upload direto pro storage).
-      for (const f of files) fd.append('images', f);
-    }
+    if (kind === 'faceswap' && faceswapNsfw) fd.set('nsfw', '1');
     start(async () => {
       try {
-        // Vídeo: sobe a imagem de entrada DIRETO no storage (preserva qualidade
-        // e evita o limite de ~4.5MB do corpo do server action) e manda só o link.
-        if (isVideoKind && reusedUrls.length === 0 && files[0]) {
-          const url = await uploadInputImage(files[0]);
-          fd.append('reused_url', url);
+        // TODA imagem de input sobe DIRETO no storage (signed URL) e o server
+        // action recebe só o link — evita o limite de ~4.5MB do corpo da request
+        // (FUNCTION_PAYLOAD_TOO_LARGE) e preserva os bytes originais sem recompressão.
+        if (kind === 'faceswap') {
+          // Ordem importa no backend: [0] = rosto, [1] = cena alvo.
+          const slots = [faceFile, targetFile].filter((f): f is File => f instanceof File);
+          const urls = await Promise.all(slots.map(uploadInputImage));
+          for (const u of urls) fd.append('reused_url', u);
+        } else if (isVideoKind) {
+          // Vídeo usa 1 imagem; se não veio da galeria, sobe a enviada.
+          if (reusedUrls.length === 0 && files[0]) {
+            fd.append('reused_url', await uploadInputImage(files[0]));
+          }
+        } else if (files.length) {
+          // create / edit / undress / enhance: sobe cada upload mantendo a ordem.
+          const urls = await Promise.all(files.map(uploadInputImage));
+          for (const u of urls) fd.append('reused_url', u);
         }
       } catch (err) {
         setResult({ ok: false, error: err instanceof Error ? err.message : 'Falha no upload da imagem.' });

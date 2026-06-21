@@ -45,7 +45,6 @@ export default async function PricingPage() {
       <section className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {pkgs.map((p, i) => {
           const bonusCredits = p.bonusImages ? p.bonusImages * CREDITS_PER_IMAGE : 0;
-          const images = p.credits / CREDITS_PER_IMAGE;
           const featured = i === popularIdx;
           const best = i === bestIdx && bestIdx !== popularIdx;
 

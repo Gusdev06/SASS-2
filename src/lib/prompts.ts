@@ -1,4 +1,22 @@
 export const CREDITS_PER_IMAGE = 10;
+
+/**
+ * Preço por modelo na aba `create`. Modelos não listados (NSFW/Seedream) e os
+ * demais fluxos (undress, faceswap, edit, enhance) usam CREDITS_PER_IMAGE (10).
+ */
+export const CREATE_MODEL_CREDITS: Record<string, number> = {
+  'gemini-3-pro-image-preview': 3, // Nano Banana Pro
+  'gemini-3.1-flash-image-preview': 2, // Nano Banana 2
+  'gpt-image-2': 3, // GPT Image
+};
+
+/** Créditos de uma geração de imagem conforme o fluxo/modelo escolhido. */
+export function imageCost(kind: string, model?: string | null): number {
+  if (kind === 'create' && model && model in CREATE_MODEL_CREDITS) {
+    return CREATE_MODEL_CREDITS[model];
+  }
+  return CREDITS_PER_IMAGE;
+}
 // Custo-base do vídeo (2s). Durações maiores escalam linearmente — ver videoCost().
 export const CREDITS_PER_VIDEO = 25;
 

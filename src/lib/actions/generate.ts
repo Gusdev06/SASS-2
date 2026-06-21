@@ -25,7 +25,7 @@ import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration, uploadBufferToSupabase } from '@/lib/storage';
 import { consumeFreeQuota, refundFreeQuota, type FreeBucket } from '@/lib/free-quota';
 import {
-  CREDITS_PER_IMAGE,
+  imageCost,
   ENHANCE_PROMPT,
   UNDRESS_PROMPT,
   FACESWAP_PROMPT,
@@ -396,7 +396,7 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const freeBucket = freeBucketFor(kind, createOpts);
   const usedFree = freeBucket ? await consumeFreeQuota(user.id, freeBucket) : false;
 
-  const cost = usedFree ? 0 : isVideoKind ? videoCost(videoDuration) : CREDITS_PER_IMAGE;
+  const cost = usedFree ? 0 : isVideoKind ? videoCost(videoDuration) : imageCost(kind, rawModel);
   if (!usedFree) {
     const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
       p_user_id: user.id,

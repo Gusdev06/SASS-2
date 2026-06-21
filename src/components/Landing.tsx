@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { t, type Lang } from '@/lib/i18n';
 import LangSwitch from './LangSwitch';
-import DemoPanel from './DemoPanel';
 import Logo from './Logo';
 
 const REGISTER_URL = '/signup';
@@ -79,19 +78,6 @@ export default function Landing({ lang }: { lang: Lang }) {
               <div><strong className="text-bone font-bold">22,000+</strong> {tr('heroRating').replace('22.000+', '').replace('22,000+', '').trim()}</div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* ============ DEMO ============ */}
-      <section className="py-10 md:py-20" id="demo">
-        <div className="container max-w-[1200px] mx-auto px-5">
-          <p className="text-center text-[0.72rem] font-bold tracking-[0.18em] text-bone-mute uppercase mb-3">{tr('demoEyebrow')}</p>
-          <h2 className="text-center text-3xl md:text-4xl font-bold tracking-tight mb-3">
-            {tr('demoTitle')} <span className="text-lime">{tr('demoTitleMark')}</span>
-          </h2>
-          <p className="text-center text-bone-dim max-w-[580px] mx-auto mb-10 text-sm">{tr('demoSub')}</p>
-
-          <DemoPanel lang={lang} registerUrl={REGISTER_URL} />
         </div>
       </section>
 
