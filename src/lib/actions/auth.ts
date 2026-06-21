@@ -22,6 +22,15 @@ const M = {
     en: 'Check your email to confirm your account.',
   },
   invalidLogin: { pt: 'E-mail ou senha inválidos.', en: 'Invalid email or password.' },
+  resetSent: {
+    pt: 'Se existir uma conta com esse e-mail, enviamos um link para redefinir a senha.',
+    en: 'If an account exists for this email, we sent a password reset link.',
+  },
+  resetExpired: {
+    pt: 'Link inválido ou expirado. Peça um novo.',
+    en: 'Invalid or expired link. Please request a new one.',
+  },
+  pwUpdated: { pt: 'Senha atualizada.', en: 'Password updated.' },
 };
 
 function pickLang(formData: FormData): Lang {
@@ -159,6 +168,52 @@ async function tryClaimMembersAccount(
   if (signErr) return signErr.message;
 
   return 'claimed';
+}
+
+/**
+ * "Esqueci minha senha": dispara o e-mail nativo do Supabase com um link de
+ * recuperação que volta pra /auth/callback?next=/reset-password. Resposta sempre
+ * genérica pra não revelar se o e-mail existe.
+ */
+export async function requestPasswordResetAction(
+  _prev: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const lang = pickLang(formData);
+  const email = String(formData.get('email') ?? '').trim().toLowerCase();
+  if (!email) return { error: M.empty[lang] };
+
+  const supabase = await createClient();
+  await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/reset-password`,
+  });
+
+  return { info: M.resetSent[lang] };
+}
+
+/**
+ * Define a nova senha. Só funciona com a sessão de recuperação ativa (criada ao
+ * clicar no link do e-mail e passar pelo /auth/callback).
+ */
+export async function updatePasswordAction(
+  _prev: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const lang = pickLang(formData);
+  const password = String(formData.get('password') ?? '');
+  if (password.length < 6) return { error: M.shortPw[lang] };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: M.resetExpired[lang] };
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) return { error: error.message };
+
+  revalidatePath('/', 'layout');
+  redirect('/dashboard');
 }
 
 export async function logoutAction() {
