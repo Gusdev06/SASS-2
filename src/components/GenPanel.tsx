@@ -70,6 +70,15 @@ const TABS: { id: Kind; en: string; pt: string; es: string; icon: string }[] = [
 // `engine` selects which backend the server action routes to.
 const GPT_IMAGE_MODEL = 'gpt-image-2';
 const NSFW_MODEL = 'nsfw';
+// Máx. de imagens de referência por engine na aba `create`, alinhado ao limite
+// de cada API: GPT Image aceita 16 (endpoint /edits); Nano Banana Pro/2 aceitam
+// 14; Seedream (NSFW) seguramos em 10. A aba `edit` (Seedream) usa EDIT_MAX_IMAGES.
+const ENGINE_MAX_IMAGES: Record<'nano' | 'gpt' | 'replicate', number> = {
+  gpt: 16,
+  nano: 14,
+  replicate: 10,
+};
+const EDIT_MAX_IMAGES = 10;
 const MODEL_OPTIONS: {
   id: string;
   icon: string;
@@ -478,9 +487,15 @@ export default function GenPanel({
   const engine = (MODEL_OPTIONS.find((m) => m.id === model) ?? MODEL_OPTIONS[0]).engine;
   const isGpt = engine === 'gpt';
   const expectedFiles = kind === 'faceswap' ? 2 : 1;
-  // `create` aceita várias imagens de referência (todas opcionais); os demais
+  // `create` aceita várias imagens de referência (todas opcionais) até o limite
+  // da engine escolhida; `edit` aceita várias (combina referências); os demais
   // fluxos têm contagem fixa (faceswap = 2, resto = 1).
-  const maxFiles = kind === 'create' ? 8 : expectedFiles;
+  const maxFiles =
+    kind === 'create'
+      ? ENGINE_MAX_IMAGES[engine]
+      : kind === 'edit'
+      ? EDIT_MAX_IMAGES
+      : expectedFiles;
   // Os dois tabs de vídeo (Kling = `video_kling` e NSFW/ComfyDeploy = `video`)
   // compartilham a mesma UI: prompt + 1 imagem + duração.
   const isVideoKind = kind === 'video' || kind === 'video_kling';
@@ -1162,7 +1177,7 @@ export default function GenPanel({
 
           <div className="space-y-3.5 text-sm">
             <Row label={lang === 'pt' ? 'Motor' : lang === 'es' ? 'Motor' : 'Engine'} value={labelFor(TABS.find((x) => x.id === kind)!, lang)} />
-            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${kind === 'faceswap' ? [faceFile, targetFile].filter(Boolean).length : reusedUrl ? 1 : files.length}/${expectedFiles}`} />
+            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${kind === 'faceswap' ? [faceFile, targetFile].filter(Boolean).length : reusedUrl ? 1 : files.length}/${maxFiles}`} />
             {isAnon ? (
               <>
                 <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value="FREE" accent />

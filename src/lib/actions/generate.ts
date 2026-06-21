@@ -80,8 +80,6 @@ async function watermarkRemote(url: string): Promise<string> {
 }
 
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
-/** Max reference images accepted on the `create` tab (Nano Banana / Seedream / GPT edits). */
-const MAX_CREATE_IMAGES = 8;
 const ANON_COOKIE = 'anon_used';
 type Kind = 'undress' | 'faceswap' | 'enhance' | 'edit' | 'video' | 'video_kling' | 'create';
 
@@ -108,6 +106,21 @@ type CreateOpts =
   | { engine: 'nano'; nano: NanoBananaOptions }
   | { engine: 'gpt'; gpt: GptImageOptions }
   | { engine: 'replicate'; replicate: SeedreamOptions };
+
+/**
+ * Teto de imagens de referência por fluxo/engine, alinhado ao limite de cada API:
+ * GPT Image 16 (endpoint /edits), Nano Banana Pro/2 14, Seedream (NSFW) 10. A aba
+ * `edit` roda no Seedream e aceita várias referências; os demais têm contagem fixa.
+ */
+function maxInputImages(kind: Kind, opts?: CreateOpts): number {
+  if (kind === 'create') {
+    if (opts?.engine === 'gpt') return 16;
+    if (opts?.engine === 'replicate') return 10;
+    return 14; // nano banana pro/2
+  }
+  if (kind === 'edit') return 10;
+  return kind === 'faceswap' ? 2 : 1;
+}
 
 export type GenResult =
   | { ok: true; outputUrl: string; remaining: number; watermarked?: boolean }
@@ -338,8 +351,9 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
           `${user?.id ?? 'anon'}/video-input`,
           f.type || 'image/jpeg'
         );
-      } else if (kind === 'create') {
-        inputUrls = files.length ? await filesToDataUris(files.slice(0, MAX_CREATE_IMAGES)) : [];
+      } else if (kind === 'create' || kind === 'edit') {
+        const cap = maxInputImages(kind, createOpts);
+        inputUrls = files.length ? await filesToDataUris(files.slice(0, cap)) : [];
       } else {
         inputUrls = await filesToDataUris(files.slice(0, expected));
       }
