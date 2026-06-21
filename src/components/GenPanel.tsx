@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { generateAction, type GenResult } from '@/lib/actions/generate';
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 import Lightbox from './Lightbox';
 import WatermarkedResult from './WatermarkedResult';
 import GalleryPicker from './GalleryPicker';
@@ -17,6 +18,28 @@ import {
 import type { FreeBucket, FreeQuotaState } from '@/lib/free-quota';
 
 const ANON_KEY = 'goz_free_used';
+
+/**
+ * Sobe a imagem de entrada DIRETO no Supabase Storage (via signed URL) e devolve
+ * a URL pública. Não passa pela serverless function, então não esbarra no limite
+ * de ~4.5MB do corpo da requisição — e sobe os bytes ORIGINAIS, sem recompressão
+ * (qualidade intacta). O server action recebe apenas o link.
+ */
+async function uploadInputImage(file: File): Promise<string> {
+  const res = await fetch('/api/upload-url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contentType: file.type || 'image/jpeg' }),
+  });
+  if (!res.ok) throw new Error('Falha ao preparar o upload da imagem.');
+  const { bucket, path, token, publicUrl } = await res.json();
+  const supabase = createBrowserSupabase();
+  const { error } = await supabase.storage
+    .from(bucket)
+    .uploadToSignedUrl(path, token, file, { contentType: file.type || 'image/jpeg' });
+  if (error) throw new Error(`Falha no upload da imagem: ${error.message}`);
+  return publicUrl as string;
+}
 
 // Modelo do tab `create` -> bucket de cota grátis. GPT Image não tem cota.
 const MODEL_BUCKET: Record<string, FreeBucket | undefined> = {
@@ -556,10 +579,22 @@ export default function GenPanel({
       if (faceFile) fd.append('images', faceFile);
       if (targetFile) fd.append('images', targetFile);
       if (faceswapNsfw) fd.set('nsfw', '1');
-    } else {
+    } else if (!isVideoKind) {
+      // Vídeo é tratado no bloco async abaixo (upload direto pro storage).
       for (const f of files) fd.append('images', f);
     }
     start(async () => {
+      try {
+        // Vídeo: sobe a imagem de entrada DIRETO no storage (preserva qualidade
+        // e evita o limite de ~4.5MB do corpo do server action) e manda só o link.
+        if (isVideoKind && !reusedUrl && files[0]) {
+          const url = await uploadInputImage(files[0]);
+          fd.set('reused_url', url);
+        }
+      } catch (err) {
+        setResult({ ok: false, error: err instanceof Error ? err.message : 'Falha no upload da imagem.' });
+        return;
+      }
       const r = await generateAction(fd);
       if (r.ok && 'isVideo' in r && r.isVideo) {
         addJob({ id: r.runId, type: 'video', runId: r.runId, remaining: r.remaining });

@@ -490,6 +490,13 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
     return { ok: true, outputUrl, remaining: profile?.credits ?? 0 };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'Falha na geração.';
+    // Visível nos logs de prod (antes a falha síncrona só voltava pra tela).
+    console.error('[generate] sync generation failed', {
+      kind,
+      genId,
+      reason,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     const { data: refunded } = await service.rpc('refund_generation', {
       p_gen_id: genId,
       p_reason: reason,
