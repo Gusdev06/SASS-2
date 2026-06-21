@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 
 export type AuthState = { error?: string; info?: string };
 
@@ -56,6 +56,22 @@ export async function signupAction(_prev: AuthState, formData: FormData): Promis
   if (password.length < 6) return { error: M.shortPw[lang] };
 
   const supabase = await createClient();
+
+  // Conta pré-criada pela ÁREA DE MEMBROS (compra do curso, mesma Supabase): o
+  // e-mail já existe em auth.users. Em vez de barrar com "já cadastrado", deixa
+  // a pessoa ASSUMIR a conta definindo a própria senha — e já loga. Só vale para
+  // contas criadas pelo webhook do curso (têm `perfectpay_*` no metadata) e que
+  // ainda não foram reivindicadas, pra não permitir trocar a senha de uma conta
+  // normal do SaaS já existente.
+  const claimed = await tryClaimMembersAccount(email, password, username, lang);
+  if (claimed === 'claimed') {
+    revalidatePath('/', 'layout');
+    redirect('/dashboard');
+  }
+  if (claimed && claimed !== 'not_eligible') {
+    return { error: claimed };
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
@@ -82,6 +98,67 @@ export async function signupAction(_prev: AuthState, formData: FormData): Promis
     redirect('/dashboard');
   }
   return { info: M.confirm[lang] };
+}
+
+/**
+ * Tenta ASSUMIR uma conta pré-criada pela área de membros (compra do curso).
+ * Retorna:
+ *   'claimed'      -> senha definida e sessão iniciada (o chamador redireciona)
+ *   'not_eligible' -> não há conta pré-criada elegível (segue o signup normal)
+ *   <mensagem>     -> erro a exibir (ex.: conta normal/ já reivindicada)
+ *
+ * Só assume contas com `perfectpay_*` no metadata (criadas pelo webhook do curso)
+ * e ainda não reivindicadas — assim ninguém troca a senha de uma conta normal do
+ * SaaS já existente.
+ */
+async function tryClaimMembersAccount(
+  email: string,
+  password: string,
+  username: string,
+  lang: Lang
+): Promise<'claimed' | 'not_eligible' | string> {
+  const service = createServiceClient();
+
+  const { data: prof } = await service
+    .from('profiles')
+    .select('user_id')
+    .eq('email', email)
+    .maybeSingle();
+  if (!prof?.user_id) return 'not_eligible';
+
+  const userId = prof.user_id as string;
+  const { data: got, error: getErr } = await service.auth.admin.getUserById(userId);
+  if (getErr || !got?.user) return 'not_eligible';
+
+  const meta = (got.user.user_metadata ?? {}) as Record<string, unknown>;
+  const fromMembers = Boolean(meta.perfectpay_sale_code || meta.perfectpay_product_code);
+  const alreadyClaimed = Boolean(meta.saas_claimed_at);
+
+  // Conta normal do SaaS (sem metadata do curso) ou já reivindicada -> não assume.
+  if (!fromMembers || alreadyClaimed) return M.exists[lang];
+
+  const { error: updErr } = await service.auth.admin.updateUserById(userId, {
+    password,
+    email_confirm: true,
+    user_metadata: {
+      ...meta,
+      username,
+      language_code: lang,
+      saas_claimed_at: new Date().toISOString(),
+    },
+  });
+  if (updErr) return updErr.message;
+
+  await service
+    .from('profiles')
+    .update({ username, language_code: lang, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+
+  const supabase = await createClient();
+  const { error: signErr } = await supabase.auth.signInWithPassword({ email, password });
+  if (signErr) return signErr.message;
+
+  return 'claimed';
 }
 
 export async function logoutAction() {
