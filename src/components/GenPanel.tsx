@@ -435,7 +435,9 @@ export default function GenPanel({
   // Duração do vídeo em segundos (vira nº de frames + custo no backend).
   const [duration, setDuration] = useState<number>(DEFAULT_VIDEO_DURATION);
   const [editPrompt, setEditPrompt] = useState('');
-  const [reusedUrl, setReusedUrl] = useState<string | null>(null);
+  // Imagens reaproveitadas do histórico/galeria (URLs). Fluxos de 1 imagem usam
+  // só a primeira; `create`/`edit` aceitam várias e combinam com os uploads.
+  const [reusedUrls, setReusedUrls] = useState<string[]>([]);
   const [result, setResult] = useState<GenResult | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   // Face Swap usa dois slots distintos: rosto da influencer + cena alvo.
@@ -496,6 +498,10 @@ export default function GenPanel({
       : kind === 'edit'
       ? EDIT_MAX_IMAGES
       : expectedFiles;
+  // Fluxos multi-imagem combinam uploads + imagens da galeria; os de 1 imagem
+  // são exclusivos (escolher na galeria substitui o upload e vice-versa).
+  const isMulti = maxFiles > 1;
+  const totalInputs = reusedUrls.length + files.length;
   // Os dois tabs de vídeo (Kling = `video_kling` e NSFW/ComfyDeploy = `video`)
   // compartilham a mesma UI: prompt + 1 imagem + duração.
   const isVideoKind = kind === 'video' || kind === 'video_kling';
@@ -514,7 +520,11 @@ export default function GenPanel({
   // Reusing a prior generation as input works for every single-image flow.
   // Face Swap needs two distinct inputs, so it stays upload-only.
   const canPickHistory = !isAnon && kind !== 'faceswap';
-  const showUpload = !(canPickHistory && reusedUrl);
+  // Multi-imagem mostra upload + galeria juntos; 1-imagem esconde o upload quando
+  // já há uma escolha da galeria (são mutuamente exclusivos).
+  const showUpload = isMulti || !(canPickHistory && reusedUrls.length > 0);
+  // Quantos slots ainda cabem ao abrir a galeria (respeita o teto da engine).
+  const remainingSlots = Math.max(1, maxFiles - files.length - (isMulti ? reusedUrls.length : 0));
   const blockedAnon = isAnon && (freeUsed || isVideoKind);
   const insufficient = !isAnon && !willBeFree && credits < cost;
   const needsPrompt = kind === 'edit' || isVideoKind || kind === 'create';
@@ -528,15 +538,19 @@ export default function GenPanel({
       : kind === 'faceswap'
       ? Boolean(faceFile && targetFile)
       : needsPrompt
-      ? promptOk && (reusedUrl || files.length >= 1)
-      : reusedUrl || files.length >= expectedFiles);
+      ? promptOk && totalInputs >= 1
+      : totalInputs >= expectedFiles);
 
   function handleFiles(list: FileList | File[]) {
     const arr = Array.from(list).filter((f) => f.type.startsWith('image/'));
-    // Fluxos multi-imagem (create) acumulam as fotos a cada seleção; fluxos de
-    // uma imagem só substituem pela mais recente.
-    setFiles((prev) => (maxFiles === 1 ? arr.slice(0, 1) : [...prev, ...arr].slice(0, maxFiles)));
-    setReusedUrl(null);
+    if (maxFiles === 1) {
+      // 1-imagem: o upload substitui o anterior e zera a escolha da galeria.
+      setFiles(arr.slice(0, 1));
+      setReusedUrls([]);
+    } else {
+      // Multi-imagem: acumula uploads respeitando o teto (descontando a galeria).
+      setFiles((prev) => [...prev, ...arr].slice(0, Math.max(0, maxFiles - reusedUrls.length)));
+    }
     setResult(null);
   }
 
@@ -555,14 +569,24 @@ export default function GenPanel({
     }
     if (!canPickHistory) return;
     const url = readRenderUrl(e.dataTransfer);
-    if (url) pickFromHistory(url);
+    if (url) pickFromHistory([url]);
   }
 
-  function pickFromHistory(url: string) {
-    setReusedUrl(url);
-    setFiles([]);
+  function pickFromHistory(urls: string[]) {
     setResult(null);
     setShowGallery(false);
+    if (maxFiles === 1) {
+      // 1-imagem: a galeria substitui o upload (são exclusivos).
+      setReusedUrls(urls.slice(0, 1));
+      setFiles([]);
+      return;
+    }
+    // Multi-imagem: acumula sem duplicar, respeitando o teto (descontando uploads).
+    setReusedUrls((prev) => {
+      const merged = [...prev];
+      for (const u of urls) if (!merged.includes(u)) merged.push(u);
+      return merged.slice(0, Math.max(0, maxFiles - files.length));
+    });
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -573,9 +597,9 @@ export default function GenPanel({
       fd.set('prompt', editPrompt);
     }
     if (isVideoKind) fd.set('duration', String(duration));
-    // A reused image (from history or a prior result) is a valid input for
-    // every single-image flow except Face Swap, which needs two inputs.
-    if (reusedUrl && kind !== 'faceswap') fd.set('reused_url', reusedUrl);
+    // Reused images (from history/gallery or a prior result) são entradas válidas
+    // em todo fluxo menos o Face Swap (que usa dois slots dedicados).
+    if (kind !== 'faceswap') for (const u of reusedUrls) fd.append('reused_url', u);
     if (kind === 'create') {
       fd.set('model', model);
       if (isGpt) {
@@ -602,9 +626,9 @@ export default function GenPanel({
       try {
         // Vídeo: sobe a imagem de entrada DIRETO no storage (preserva qualidade
         // e evita o limite de ~4.5MB do corpo do server action) e manda só o link.
-        if (isVideoKind && !reusedUrl && files[0]) {
+        if (isVideoKind && reusedUrls.length === 0 && files[0]) {
           const url = await uploadInputImage(files[0]);
-          fd.set('reused_url', url);
+          fd.append('reused_url', url);
         }
       } catch (err) {
         setResult({ ok: false, error: err instanceof Error ? err.message : 'Falha no upload da imagem.' });
@@ -627,7 +651,7 @@ export default function GenPanel({
       }
       setResult(r);
       if (r.ok && 'outputUrl' in r) {
-        setReusedUrl(r.outputUrl);
+        setReusedUrls([r.outputUrl]);
         setFiles([]);
         setFaceFile(null);
         setTargetFile(null);
@@ -644,6 +668,7 @@ export default function GenPanel({
     setKind(id);
     setResult(null);
     setFiles([]);
+    setReusedUrls([]);
     setFaceFile(null);
     setTargetFile(null);
   }
@@ -990,13 +1015,14 @@ export default function GenPanel({
             </div>
           )}
 
-          {!showUpload && reusedUrl && (
+          {/* 1-imagem: card único da escolha da galeria (upload fica escondido). */}
+          {!isMulti && !showUpload && reusedUrls[0] && (
             <div>
               <label className="field-label">{uploadHint}</label>
               <div className="relative rounded-2xl border border-lime/40 bg-lime/5 p-4 flex items-center gap-4">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={reusedUrl}
+                  src={reusedUrls[0]}
                   alt=""
                   className="w-20 h-20 object-cover rounded-xl border border-white/10 shrink-0"
                 />
@@ -1015,13 +1041,41 @@ export default function GenPanel({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setReusedUrl(null)}
+                      onClick={() => setReusedUrls([])}
                       className="text-bone-dim font-semibold hover:underline"
                     >
                       {t('remove', lang)}
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Multi-imagem: grade das imagens reaproveitadas da galeria, removíveis. */}
+          {isMulti && reusedUrls.length > 0 && (
+            <div>
+              <label className="field-label">
+                {lang === 'pt'
+                  ? `Da galeria (${reusedUrls.length})`
+                  : lang === 'es'
+                  ? `De la galería (${reusedUrls.length})`
+                  : `From gallery (${reusedUrls.length})`}
+              </label>
+              <div className={`grid ${reusedUrls.length > 2 ? 'grid-cols-3' : reusedUrls.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
+                {reusedUrls.map((u) => (
+                  <div key={u} className="relative aspect-square overflow-hidden bg-ink-900 border border-lime/40 rounded-xl">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={u} alt="" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setReusedUrls((prev) => prev.filter((x) => x !== u))}
+                      className="absolute top-2 right-2 w-6 h-6 grid place-items-center rounded-full bg-ink-900/80 backdrop-blur-sm text-bone hover:text-white text-xs font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1177,7 +1231,7 @@ export default function GenPanel({
 
           <div className="space-y-3.5 text-sm">
             <Row label={lang === 'pt' ? 'Motor' : lang === 'es' ? 'Motor' : 'Engine'} value={labelFor(TABS.find((x) => x.id === kind)!, lang)} />
-            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${kind === 'faceswap' ? [faceFile, targetFile].filter(Boolean).length : reusedUrl ? 1 : files.length}/${maxFiles}`} />
+            <Row label={lang === 'pt' ? 'Entradas' : lang === 'es' ? 'Entradas' : 'Inputs'} value={`${kind === 'faceswap' ? [faceFile, targetFile].filter(Boolean).length : totalInputs}/${maxFiles}`} />
             {isAnon ? (
               <>
                 <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value="FREE" accent />
@@ -1271,7 +1325,7 @@ export default function GenPanel({
                 <div className="flex justify-center gap-3">
                   <a href={result.outputUrl} download className="btn-primary text-xs">↓ {t('download', lang)}</a>
                   {!isVid && (
-                    <button type="button" onClick={() => { setKind('edit'); setReusedUrl(result.outputUrl); setResult(null); }} className="btn-ghost text-xs">
+                    <button type="button" onClick={() => { setKind('edit'); setReusedUrls([result.outputUrl]); setFiles([]); setResult(null); }} className="btn-ghost text-xs">
                       ↻ {t('reuse', lang)}
                     </button>
                   )}
@@ -1284,7 +1338,13 @@ export default function GenPanel({
 
       <Lightbox src={open} onClose={() => setOpen(null)} />
       {showGallery && (
-        <GalleryPicker lang={lang} onPick={pickFromHistory} onClose={() => setShowGallery(false)} />
+        <GalleryPicker
+          lang={lang}
+          onPick={pickFromHistory}
+          onClose={() => setShowGallery(false)}
+          multiple={isMulti}
+          maxSelect={remainingSlots}
+        />
       )}
     </section>
   );

@@ -254,7 +254,9 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const isVideoKind = kind === 'video' || kind === 'video_kling';
 
   const customPrompt = formData.get('prompt') ? String(formData.get('prompt')) : null;
-  const reusedUrl = formData.get('reused_url') ? String(formData.get('reused_url')) : null;
+  // Imagens reaproveitadas do histórico/galeria. `create`/`edit` aceitam várias;
+  // os fluxos de 1 imagem (e vídeo) usam só a primeira.
+  const reusedUrls = formData.getAll('reused_url').map((v) => String(v)).filter(Boolean);
   const prompt = pickPrompt(kind, customPrompt);
 
   // Duração do vídeo (segundos) -> nº de frames + custo. Só vale no tab `video`.
@@ -321,44 +323,45 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
 
   let inputUrls: string[] = [];
   let videoInputUrl: string | null = null;
-  if (reusedUrl) {
-    inputUrls = [reusedUrl];
-    if (isVideoKind) videoInputUrl = reusedUrl;
-  } else {
-    const files = formData.getAll('images').filter((f): f is File => f instanceof File && f.size > 0);
-    // `create` accepts an optional reference image; others require their inputs.
-    const expected = kind === 'create' ? 0 : kind === 'faceswap' ? 2 : 1;
-    if (files.length < expected) {
-      return { ok: false, error: `Envie ${expected} foto(s).` };
-    }
-    try {
-      if (kind === 'video') {
-        const f = files[0];
-        if (f.size > MAX_FILE_BYTES) {
-          return { ok: false, error: `imagem muito grande (max ${MAX_FILE_BYTES / 1024 / 1024}MB)` };
-        }
-        const buf = new Uint8Array(await f.arrayBuffer());
-        videoInputUrl = await uploadAsset(buf, f.type || 'image/jpeg', f.name || 'input.jpg');
-      } else if (kind === 'video_kling') {
-        const f = files[0];
-        if (f.size > MAX_FILE_BYTES) {
-          return { ok: false, error: `imagem muito grande (max ${MAX_FILE_BYTES / 1024 / 1024}MB)` };
-        }
-        const buf = new Uint8Array(await f.arrayBuffer());
-        // Kling (kie) busca a imagem por URL pública -> sobe pro Supabase Storage.
-        videoInputUrl = await uploadBufferToSupabase(
-          buf,
-          `${user?.id ?? 'anon'}/video-input`,
-          f.type || 'image/jpeg'
-        );
-      } else if (kind === 'create' || kind === 'edit') {
-        const cap = maxInputImages(kind, createOpts);
-        inputUrls = files.length ? await filesToDataUris(files.slice(0, cap)) : [];
-      } else {
-        inputUrls = await filesToDataUris(files.slice(0, expected));
+
+  if (isVideoKind) {
+    // Vídeo usa UMA imagem: prioriza a reaproveitada (galeria/histórico), senão
+    // sobe a primeira foto enviada.
+    if (reusedUrls[0]) {
+      videoInputUrl = reusedUrls[0];
+    } else {
+      const files = formData.getAll('images').filter((f): f is File => f instanceof File && f.size > 0);
+      const f = files[0];
+      if (!f) return { ok: false, error: 'Envie 1 foto.' };
+      if (f.size > MAX_FILE_BYTES) {
+        return { ok: false, error: `imagem muito grande (max ${MAX_FILE_BYTES / 1024 / 1024}MB)` };
       }
+      try {
+        const buf = new Uint8Array(await f.arrayBuffer());
+        videoInputUrl =
+          kind === 'video'
+            ? await uploadAsset(buf, f.type || 'image/jpeg', f.name || 'input.jpg')
+            : // Kling (kie) busca a imagem por URL pública -> sobe pro Supabase Storage.
+              await uploadBufferToSupabase(buf, `${user?.id ?? 'anon'}/video-input`, f.type || 'image/jpeg');
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : 'Falha na leitura da imagem.' };
+      }
+    }
+  } else {
+    // Imagem: combina as reaproveitadas (galeria/histórico) com os uploads, na
+    // ordem, respeitando o teto da engine/fluxo.
+    const files = formData.getAll('images').filter((f): f is File => f instanceof File && f.size > 0);
+    const cap = maxInputImages(kind, createOpts);
+    try {
+      const uploaded = files.length ? await filesToDataUris(files.slice(0, cap)) : [];
+      inputUrls = [...reusedUrls, ...uploaded].slice(0, cap);
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : 'Falha na leitura da imagem.' };
+    }
+    // `create` aceita referência opcional; os demais exigem suas entradas.
+    const expected = kind === 'create' ? 0 : kind === 'faceswap' ? 2 : 1;
+    if (inputUrls.length < expected) {
+      return { ok: false, error: `Envie ${expected} foto(s).` };
     }
   }
 
