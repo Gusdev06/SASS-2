@@ -53,8 +53,9 @@ export async function uploadAsset(
 export async function queueRun(inputs: {
   input_image: string;
   prompt: string;
-  // Duração do vídeo em segundos. O deployment expõe um external input
-  // `duration`; a conversão para frames (× frame_rate) é feita no workflow.
+  // ATENÇÃO: apesar do nome, o external input `duration` do deployment é ligado
+  // direto ao `length` (nº de FRAMES) do nó WanImageToVideo — o workflow NÃO
+  // converte segundos→frames. Passe o nº de frames já calculado (videoFrames()).
   duration?: number;
 }): Promise<string> {
   if (!DEPLOYMENT) throw new Error('COMFYDEPLOY_DEPLOYMENT_ID missing');

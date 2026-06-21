@@ -32,6 +32,7 @@ import {
   VIDEO_DURATIONS,
   DEFAULT_VIDEO_DURATION,
   videoCost,
+  videoFrames,
   type VideoDuration,
 } from '@/lib/prompts';
 
@@ -438,10 +439,12 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   try {
     if (kind === 'video') {
       if (!videoInputUrl) throw new Error('Imagem de entrada ausente.');
+      // O input externo `duration` do deployment é o `length` (nº de FRAMES) do
+      // WanImageToVideo — o workflow NÃO converte. Então mandamos segundos × 16.
       const runId = await queueRun({
         input_image: videoInputUrl,
         prompt,
-        duration: videoDuration,
+        duration: videoFrames(videoDuration),
       });
       await service
         .from('generations')
