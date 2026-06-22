@@ -6,6 +6,9 @@ const nextConfig = {
     serverActions: { bodySizeLimit: '25mb' },
   },
   images: {
+    // Desativa a Otimização de Imagem da Vercel (que tem cota mensal no plano free).
+    // As imagens passam a ser servidas direto da origem, sem contar no limite.
+    unoptimized: true,
     remotePatterns: [
       { protocol: 'https', hostname: 'replicate.delivery' },
       { protocol: 'https', hostname: '*.replicate.delivery' },
