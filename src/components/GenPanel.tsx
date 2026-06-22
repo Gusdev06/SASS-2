@@ -1134,7 +1134,7 @@ export default function GenPanel({
               <label className="field-label">
                 {lang === 'pt' ? 'Duração' : lang === 'es' ? 'Duración' : 'Duration'}
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {VIDEO_DURATIONS.map((s) => {
                   const active = duration === s;
                   return (
