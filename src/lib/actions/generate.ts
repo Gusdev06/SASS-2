@@ -20,6 +20,7 @@ import {
 } from '@/lib/vertex-image';
 import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/gpt-image';
 import { generateImage as generateKie, KIE_MODELS, type KieOptions } from '@/lib/kie-image';
+import { generateUndress } from '@/lib/n8ked';
 import { queueKlingVideo } from '@/lib/kie-video';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration, uploadBufferToSupabase } from '@/lib/storage';
@@ -146,6 +147,9 @@ function runPrimaryEngine(
   inputUrls: string[],
   opts?: CreateOpts
 ): Promise<string> {
+  // Undress roda na API de deepnude da n8ked (assíncrona, sem prompt) — não na
+  // Replicate. As demais engines/flows seguem o roteamento abaixo.
+  if (kind === 'undress') return generateUndress(inputUrls);
   if (kind === 'create') {
     if (opts?.engine === 'gpt') return generateGptImage(prompt, inputUrls, opts.gpt);
     if (opts?.engine === 'replicate') return generateImage(prompt, inputUrls, opts.replicate);
