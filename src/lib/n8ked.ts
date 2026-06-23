@@ -107,9 +107,10 @@ async function createJob(token: string, image: string): Promise<string> {
     body: JSON.stringify({ image }),
   });
   if (!res.ok) throw classifyStatus(res.status, await safeText(res));
-  const data = (await res.json().catch(() => null)) as { id?: string } | null;
-  if (!data?.id) throw new ImageEngineError('unexpected_response', 'n8ked não retornou job id', 1);
-  return data.id;
+  const data = (await res.json().catch(() => null)) as { task_id?: string; id?: string } | null;
+  const id = data?.task_id ?? data?.id;
+  if (!id) throw new ImageEngineError('unexpected_response', 'n8ked não retornou task_id', 1);
+  return id;
 }
 
 type ApiTask = {
