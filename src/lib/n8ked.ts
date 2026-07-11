@@ -52,6 +52,8 @@ function classifyStatus(status: number, body: string): ImageEngineError {
   if (status === 401 || status === 403) {
     return new ImageEngineError('auth_missing', `n8ked auth ${status}`, 1, body);
   }
+  // 402 = sem créditos na n8ked -> sinaliza fallback pro Replicate.
+  if (status === 402) return new ImageEngineError('payment_required', 'n8ked sem créditos (402)', 1, body);
   if (status === 422) return new ImageEngineError('invalid_input', 'n8ked rejeitou a imagem (422)', 1, body);
   if (status === 429) return new ImageEngineError('rate_limited', 'n8ked rate limit (429)', 1, body);
   if (status >= 500 && status < 600) return new ImageEngineError('upstream_5xx', `n8ked ${status}`, 1, body);

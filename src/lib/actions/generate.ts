@@ -21,6 +21,7 @@ import {
 import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/gpt-image';
 import { generateImage as generateKie, KIE_MODELS, type KieOptions } from '@/lib/kie-image';
 import { generateUndress } from '@/lib/n8ked';
+import { ImageEngineError } from '@/lib/image-engine';
 import { queueKlingVideo } from '@/lib/kie-video';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration, uploadBufferToSupabase } from '@/lib/storage';
@@ -141,15 +142,27 @@ function pickPrompt(kind: Kind, customPrompt: string | null): string {
  * (Vertex AI / Gemini) or GPT Image (OpenAI); every other image flow stays on
  * Replicate (Seedream).
  */
-function runPrimaryEngine(
+async function runPrimaryEngine(
   kind: Kind,
   prompt: string,
   inputUrls: string[],
   opts?: CreateOpts
 ): Promise<string> {
   // Undress roda na API de deepnude da n8ked (assíncrona, sem prompt) — não na
-  // Replicate. As demais engines/flows seguem o roteamento abaixo.
-  if (kind === 'undress') return generateUndress(inputUrls);
+  // Replicate. Se a n8ked ficar sem créditos (402), cai pro Replicate usando o
+  // UNDRESS_PROMPT (já resolvido em `prompt`). As demais engines/flows seguem o
+  // roteamento abaixo.
+  if (kind === 'undress') {
+    try {
+      return await generateUndress(inputUrls);
+    } catch (err) {
+      if (err instanceof ImageEngineError && err.code === 'payment_required') {
+        console.error('[generate] n8ked sem créditos (402), fallback pro Replicate no undress');
+        return generateImage(prompt, inputUrls);
+      }
+      throw err;
+    }
+  }
   if (kind === 'create') {
     if (opts?.engine === 'gpt') return generateGptImage(prompt, inputUrls, opts.gpt);
     if (opts?.engine === 'replicate') return generateImage(prompt, inputUrls, opts.replicate);

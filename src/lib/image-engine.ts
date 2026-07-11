@@ -12,6 +12,7 @@ export type ImageEngineErrorCode =
   | 'rate_limited'
   | 'content_rejected'
   | 'invalid_input'
+  | 'payment_required'
   | 'upstream_5xx'
   | 'network'
   | 'unexpected_response'
