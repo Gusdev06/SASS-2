@@ -21,7 +21,6 @@ import {
 import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/gpt-image';
 import { generateImage as generateKie, KIE_MODELS, type KieOptions } from '@/lib/kie-image';
 import { generateUndress } from '@/lib/n8ked';
-import { ImageEngineError } from '@/lib/image-engine';
 import { queueKlingVideo } from '@/lib/kie-video';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration, uploadBufferToSupabase } from '@/lib/storage';
@@ -149,19 +148,12 @@ async function runPrimaryEngine(
   opts?: CreateOpts
 ): Promise<string> {
   // Undress roda na API de deepnude da n8ked (assíncrona, sem prompt) — não na
-  // Replicate. Se a n8ked ficar sem créditos (402), cai pro Replicate usando o
-  // UNDRESS_PROMPT (já resolvido em `prompt`). As demais engines/flows seguem o
-  // roteamento abaixo.
+  // Replicate. Se a n8ked falhar por qualquer motivo (402/sem créditos, timeout,
+  // 5xx, etc.), o fallback universal do `runImageEngine` cai pro Replicate/Seedream
+  // usando o UNDRESS_PROMPT (já resolvido em `prompt`). As demais engines/flows
+  // seguem o roteamento abaixo.
   if (kind === 'undress') {
-    try {
-      return await generateUndress(inputUrls);
-    } catch (err) {
-      if (err instanceof ImageEngineError && err.code === 'payment_required') {
-        console.error('[generate] n8ked sem créditos (402), fallback pro Replicate no undress');
-        return generateImage(prompt, inputUrls);
-      }
-      throw err;
-    }
+    return generateUndress(inputUrls);
   }
   if (kind === 'create') {
     if (opts?.engine === 'gpt') return generateGptImage(prompt, inputUrls, opts.gpt);
@@ -193,10 +185,58 @@ function kieFallbackOpts(kind: Kind, opts?: CreateOpts): KieOptions | null {
 }
 
 /**
- * Roda o engine primário. Se ele for Nano Banana (Pro/2) e falhar (timeout,
- * 5xx, rate limit, etc.), tenta gerar a mesma imagem pela API do kie.ai como
- * fallback. Os demais engines (GPT, Replicate/NSFW) não têm fallback. Só re-lança
- * o erro original se o fallback também falhar.
+ * Diz se o engine primário do fluxo JÁ é o Replicate/Seedream — nesse caso não
+ * faz sentido cair no fallback do Seedream (seria repetir a mesma API). Cobre:
+ * `create` com engine `replicate` (NSFW), Face Swap com NSFW ligado, e os fluxos
+ * `edit`/`enhance` que rodam sempre no Seedream. Undress roda no n8ked, então
+ * NÃO é Seedream e deve ter fallback.
+ */
+function primaryIsSeedream(kind: Kind, opts?: CreateOpts): boolean {
+  if (kind === 'create') return opts?.engine === 'replicate';
+  if (kind === 'faceswap') return opts?.engine !== 'nano';
+  return kind === 'edit' || kind === 'enhance';
+}
+
+/**
+ * Opções do Seedream para o fallback, preservando o aspect ratio quando dá.
+ * A engine `replicate` já traz opções nativas; do Nano Banana reaproveitamos só
+ * o aspect ratio (o `generateImage` valida e cai no default se não for suportado).
+ * GPT/undress não têm aspect ratio compatível -> default do Seedream.
+ */
+function seedreamFallbackOpts(opts?: CreateOpts): SeedreamOptions | undefined {
+  if (opts?.engine === 'replicate') return opts.replicate;
+  if (opts?.engine === 'nano') return { aspectRatio: opts.nano.aspectRatio };
+  return undefined;
+}
+
+/**
+ * Último degrau de fallback: gera a imagem no Replicate (Seedream). Se ele também
+ * falhar, re-lança combinando o motivo anterior com o do Seedream pra que a causa
+ * real apareça em generations.error / no painel admin.
+ */
+async function runSeedreamFallback(
+  kind: Kind,
+  prompt: string,
+  inputUrls: string[],
+  opts: CreateOpts | undefined,
+  priorReason: string
+): Promise<string> {
+  console.error('[generate] fallback pro Replicate/Seedream', { kind, priorReason });
+  try {
+    return await generateImage(prompt, inputUrls, seedreamFallbackOpts(opts));
+  } catch (seedErr) {
+    const seedReason = seedErr instanceof Error ? seedErr.message : String(seedErr);
+    console.error('[generate] fallback Replicate/Seedream também falhou', { kind, priorReason, seedReason });
+    throw new Error(`${priorReason}; fallback Replicate/Seedream falhou (${seedReason})`);
+  }
+}
+
+/**
+ * Roda o engine primário. Se ele falhar por QUALQUER motivo, cai no Replicate
+ * (Seedream) como fallback universal — cobre GPT Image, Nano Banana e undress
+ * (n8ked). O Nano Banana (Pro/2) ainda tenta o kie.ai antes de descer pro
+ * Seedream. Quando o próprio primário já é o Seedream (NSFW/edit/enhance/faceswap
+ * NSFW), re-lança o erro original em vez de repetir a mesma API.
  */
 async function runImageEngine(
   kind: Kind,
@@ -207,19 +247,31 @@ async function runImageEngine(
   try {
     return await runPrimaryEngine(kind, prompt, inputUrls, opts);
   } catch (primaryErr) {
-    const kieOpts = kieFallbackOpts(kind, opts);
-    if (!kieOpts) throw primaryErr;
     const primaryReason = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
-    console.error('[generate] nano banana failed, falling back to kie.ai', { kind, primaryReason });
-    try {
-      return await generateKie(prompt, inputUrls, kieOpts);
-    } catch (kieErr) {
-      const kieReason = kieErr instanceof Error ? kieErr.message : String(kieErr);
-      console.error('[generate] kie.ai fallback also failed', { kind, primaryReason, kieReason });
-      // Surfacing AMBAS as causas — a do Nano Banana e a do fallback — pra que o
-      // motivo real apareça em generations.error / no painel admin.
-      throw new Error(`Nano Banana falhou (${primaryReason}); fallback kie.ai falhou (${kieReason})`);
+
+    // Nano Banana (Pro/2) tem um fallback intermediário no kie.ai antes do Seedream.
+    const kieOpts = kieFallbackOpts(kind, opts);
+    if (kieOpts) {
+      console.error('[generate] nano banana failed, falling back to kie.ai', { kind, primaryReason });
+      try {
+        return await generateKie(prompt, inputUrls, kieOpts);
+      } catch (kieErr) {
+        const kieReason = kieErr instanceof Error ? kieErr.message : String(kieErr);
+        return runSeedreamFallback(
+          kind,
+          prompt,
+          inputUrls,
+          opts,
+          `Nano Banana falhou (${primaryReason}); kie.ai falhou (${kieReason})`
+        );
+      }
     }
+
+    // Se o primário já é o Seedream, não adianta repetir — re-lança o erro original.
+    if (primaryIsSeedream(kind, opts)) throw primaryErr;
+
+    // Demais engines (GPT Image, undress/n8ked) caem direto no Seedream.
+    return runSeedreamFallback(kind, prompt, inputUrls, opts, primaryReason);
   }
 }
 
