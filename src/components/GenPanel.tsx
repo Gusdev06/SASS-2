@@ -141,10 +141,10 @@ const NSFW_ASPECT_OPTIONS: { id: string; label: { en: string; pt: string; es: st
   { id: '21:9', label: { en: 'Cinema 21:9', pt: 'Cinema 21:9', es: 'Cine 21:9' } },
 ];
 
-// NSFW (Seedream) só aceita 2K e 4K.
+// NSFW (Seedream V5.0 Pro Edit / WaveSpeed) aceita os tiers 1K e 2K.
 const NSFW_SIZE_OPTIONS: { id: string; label: { en: string; pt: string; es: string } }[] = [
-  { id: '2K', label: { en: '2K · balanced', pt: '2K · equilibrado', es: '2K · equilibrado' } },
-  { id: '4K', label: { en: '4K · max', pt: '4K · máx', es: '4K · máx' } },
+  { id: '1K', label: { en: '1K · fast', pt: '1K · rápido', es: '1K · rápido' } },
+  { id: '2K', label: { en: '2K · max', pt: '2K · máx', es: '2K · máx' } },
 ];
 
 const labelFor = (tab: typeof TABS[number], lang: Lang) =>
