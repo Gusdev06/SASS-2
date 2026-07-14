@@ -22,6 +22,15 @@ import { generateImage as generateGptImage, type GptImageOptions } from '@/lib/g
 import { generateImage as generateKie, KIE_MODELS, type KieOptions } from '@/lib/kie-image';
 import { generateUndress } from '@/lib/n8ked';
 import { queueKlingVideo } from '@/lib/kie-video';
+import {
+  queueSpicyVideo,
+  SPICY_RESOLUTIONS,
+  SPICY_PRESETS,
+  SPICY_MIN_DURATION,
+  SPICY_MAX_DURATION,
+  type SpicyResolution,
+  type SpicyPreset,
+} from '@/lib/wavespeed-video';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration, uploadBufferToSupabase } from '@/lib/storage';
 import { consumeFreeQuota, refundFreeQuota, type FreeBucket } from '@/lib/free-quota';
@@ -33,6 +42,7 @@ import {
   VIDEO_DURATIONS,
   DEFAULT_VIDEO_DURATION,
   videoCost,
+  spicyVideoCost,
   videoFrames,
   type VideoDuration,
 } from '@/lib/prompts';
@@ -334,6 +344,28 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
     ? (rawDuration as VideoDuration)
     : DEFAULT_VIDEO_DURATION;
 
+  // Modo do tab `video` (NSFW): `wan` (ComfyDeploy, padrão) ou `ltx-spicy`
+  // (LTX 2.3 Spicy via WaveSpeed). O LTX busca a imagem por URL pública, então
+  // exige upload no Supabase (igual ao Kling) em vez do storage do ComfyDeploy.
+  const spicyVideo = kind === 'video' && formData.get('video_model') === 'ltx-spicy';
+
+  // Opções do LTX Spicy: duração 3–20s (livre), resolução e preset. Validadas
+  // contra os conjuntos aceitos; qualquer valor fora cai no default.
+  const rawSpicyDuration = Number(formData.get('duration'));
+  const spicyDuration = Number.isFinite(rawSpicyDuration)
+    ? Math.min(SPICY_MAX_DURATION, Math.max(SPICY_MIN_DURATION, Math.round(rawSpicyDuration)))
+    : 5;
+  const rawResolution = String(formData.get('resolution') ?? '');
+  const spicyResolution: SpicyResolution = (SPICY_RESOLUTIONS as readonly string[]).includes(
+    rawResolution
+  )
+    ? (rawResolution as SpicyResolution)
+    : '480p';
+  const rawPreset = String(formData.get('preset') ?? '');
+  const spicyPreset: SpicyPreset = (SPICY_PRESETS as readonly string[]).includes(rawPreset)
+    ? (rawPreset as SpicyPreset)
+    : 'tuned';
+
   // Model / quality / aspect-ratio — only honored for the SFW `create` tab.
   const rawModel = formData.get('model') ? String(formData.get('model')) : null;
   let createOpts: CreateOpts | undefined;
@@ -408,9 +440,10 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       try {
         const buf = new Uint8Array(await f.arrayBuffer());
         videoInputUrl =
-          kind === 'video'
+          kind === 'video' && !spicyVideo
             ? await uploadAsset(buf, f.type || 'image/jpeg', f.name || 'input.jpg')
-            : // Kling (kie) busca a imagem por URL pública -> sobe pro Supabase Storage.
+            : // Kling (kie) e LTX Spicy (WaveSpeed) buscam a imagem por URL pública
+              // -> sobe pro Supabase Storage.
               await uploadBufferToSupabase(buf, `${user?.id ?? 'anon'}/video-input`, f.type || 'image/jpeg');
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : 'Falha na leitura da imagem.' };
@@ -465,7 +498,15 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   const freeBucket = freeBucketFor(kind, createOpts);
   const usedFree = freeBucket ? await consumeFreeQuota(user.id, freeBucket) : false;
 
-  const cost = usedFree ? 0 : isVideoKind ? videoCost(videoDuration) : imageCost(kind, rawModel);
+  // LTX Spicy tem preço próprio (por duração 5–20s + resolução, margem travada);
+  // WAN/Kling usam videoCost sobre VIDEO_DURATIONS.
+  const cost = usedFree
+    ? 0
+    : isVideoKind
+    ? spicyVideo
+      ? spicyVideoCost(spicyDuration, spicyResolution)
+      : videoCost(videoDuration)
+    : imageCost(kind, rawModel);
   if (!usedFree) {
     const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
       p_user_id: user.id,
@@ -523,6 +564,29 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
   }
 
   try {
+    if (kind === 'video' && spicyVideo) {
+      if (!videoInputUrl) throw new Error('Imagem de entrada ausente.');
+      // LTX 2.3 Spicy via WaveSpeed — assíncrono, sem fallback. Marcador `ws:<id>`.
+      // A duração é em SEGUNDOS (o LTX aceita 3–20 direto, sem converter frames).
+      const taskId = await queueSpicyVideo({
+        imageUrl: videoInputUrl,
+        prompt,
+        duration: spicyDuration,
+        resolution: spicyResolution,
+        preset: spicyPreset,
+      });
+      await service
+        .from('generations')
+        .update({ input_urls: [`ws:${taskId}`] })
+        .eq('id', genId);
+      const { data: profile } = await service
+        .from('profiles')
+        .select('credits')
+        .eq('user_id', user.id)
+        .single();
+      return { ok: true, isVideo: true, runId: taskId, remaining: profile?.credits ?? 0 };
+    }
+
     if (kind === 'video') {
       if (!videoInputUrl) throw new Error('Imagem de entrada ausente.');
       // O input externo `duration` do deployment é o `length` (nº de FRAMES) do

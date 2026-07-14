@@ -35,6 +35,29 @@ export const videoFrames = (seconds: number) => Math.round(seconds * VIDEO_FRAME
 /** Créditos de um vídeo — escalam linearmente com a duração (2s = base). */
 export const videoCost = (seconds: number) => Math.round((CREDITS_PER_VIDEO * seconds) / 2);
 
+// ── LTX 2.3 Spicy (WaveSpeed) — preço próprio, calculado pra travar a margem ──
+// O provider cobra por segundo, por resolução (e no MÍNIMO 5s). Precificamos os
+// créditos pra que a margem sobre esse custo seja ~SPICY_TARGET_MARGIN, usando o
+// valor de crédito do MAIOR pacote como base (piso): quem compra com o maior
+// desconto ainda rende a margem-alvo; pacotes menores rendem mais.
+export const SPICY_PROVIDER_USD_PER_SEC: Record<string, number> = {
+  '480p': 0.02,
+  '720p': 0.04,
+  '1080p': 0.06,
+};
+export const SPICY_TARGET_MARGIN = 0.89; // 89% sobre o custo do WaveSpeed
+const SPICY_CREDIT_VALUE_USD = 0.048; // menor $/crédito (pacote u60) — pior caso
+export const SPICY_MIN_BILLED_SECONDS = 5; // WaveSpeed fatura no mínimo 5s
+
+/** Créditos de um vídeo LTX Spicy conforme duração (s) e resolução. */
+export function spicyVideoCost(seconds: number, resolution: string): number {
+  const perSec = SPICY_PROVIDER_USD_PER_SEC[resolution] ?? SPICY_PROVIDER_USD_PER_SEC['480p'];
+  const billed = Math.max(SPICY_MIN_BILLED_SECONDS, Math.min(20, Math.round(seconds)));
+  const providerCost = perSec * billed;
+  const revenueNeeded = providerCost / (1 - SPICY_TARGET_MARGIN);
+  return Math.max(1, Math.round(revenueNeeded / SPICY_CREDIT_VALUE_USD));
+}
+
 export const ENHANCE_PROMPT =
   'Deixa essa mulher completamente pelada, mantenha o rosto original e o corpo, os seios e a bunda devem ficar bem avantajados e sedutores, mantenha a iluminação e o fundo original.';
 

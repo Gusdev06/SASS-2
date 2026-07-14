@@ -18,11 +18,12 @@ export async function GET(
   if (!user) return NextResponse.json({ error: 'auth' }, { status: 401 });
 
   const service = createServiceClient();
-  // O cliente faz polling com o id "cru"; o marcador salvo é `kie:<id>` (Kling)
-  // ou `run:<id>` (ComfyDeploy). Procuramos por qualquer um dos dois.
+  // O cliente faz polling com o id "cru"; o marcador salvo é `kie:<id>` (Kling),
+  // `ws:<id>` (LTX Spicy/WaveSpeed) ou `run:<id>` (ComfyDeploy). Procuramos por
+  // qualquer um deles.
   let gen: { id: string; output_url: string | null; status: string } | null = null;
   let marker = '';
-  for (const candidate of [`kie:${runId}`, `run:${runId}`]) {
+  for (const candidate of [`kie:${runId}`, `ws:${runId}`, `run:${runId}`]) {
     const { data } = await service
       .from('generations')
       .select('id, output_url, status')

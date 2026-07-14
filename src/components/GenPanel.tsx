@@ -14,6 +14,7 @@ import {
   VIDEO_DURATIONS,
   DEFAULT_VIDEO_DURATION,
   videoCost,
+  spicyVideoCost,
 } from '@/lib/prompts';
 import type { FreeBucket, FreeQuotaState } from '@/lib/free-quota';
 
@@ -434,6 +435,12 @@ export default function GenPanel({
   const [nsfwSize, setNsfwSize] = useState<string>('2K');
   // Duração do vídeo em segundos (vira nº de frames + custo no backend).
   const [duration, setDuration] = useState<number>(DEFAULT_VIDEO_DURATION);
+  // Modo do tab NSFW (`video`): `wan` (padrão) ou `ltx-spicy` (LTX 2.3 Spicy).
+  const [videoModel, setVideoModel] = useState<'wan' | 'ltx-spicy'>('wan');
+  // Opções exclusivas do LTX 2.3 Spicy: duração livre (3–20s), resolução e preset.
+  const [ltxDuration, setLtxDuration] = useState<number>(5);
+  const [ltxResolution, setLtxResolution] = useState<'480p' | '720p' | '1080p'>('480p');
+  const [ltxPreset, setLtxPreset] = useState<'tuned' | 'original'>('tuned');
   const [editPrompt, setEditPrompt] = useState('');
   // Imagens reaproveitadas do histórico/galeria (URLs). Fluxos de 1 imagem usam
   // só a primeira; `create`/`edit` aceitam várias e combinam com os uploads.
@@ -505,7 +512,14 @@ export default function GenPanel({
   // Os dois tabs de vídeo (Kling = `video_kling` e NSFW/ComfyDeploy = `video`)
   // compartilham a mesma UI: prompt + 1 imagem + duração.
   const isVideoKind = kind === 'video' || kind === 'video_kling';
-  const cost = isVideoKind ? videoCost(duration) : imageCost(kind, model);
+  // LTX Spicy tem sua própria duração (5–20s) e preço por resolução; WAN/Kling
+  // usam os presets 2s/5s com videoCost.
+  const isLtxSpicy = kind === 'video' && videoModel === 'ltx-spicy';
+  const cost = isVideoKind
+    ? isLtxSpicy
+      ? spicyVideoCost(ltxDuration, ltxResolution)
+      : videoCost(duration)
+    : imageCost(kind, model);
 
   // Cota grátis diária (compradores do curso). Só vale no tab `create` p/ os
   // modelos Nano/Replicate. Esgotou -> a geração passa a custar créditos.
@@ -596,7 +610,15 @@ export default function GenPanel({
     if (kind === 'edit' || isVideoKind || kind === 'create') {
       fd.set('prompt', editPrompt);
     }
-    if (isVideoKind) fd.set('duration', String(duration));
+    if (isVideoKind) fd.set('duration', String(isLtxSpicy ? ltxDuration : duration));
+    // Modo do tab NSFW (`video`): escolhe entre WAN (ComfyDeploy) e LTX Spicy (WaveSpeed).
+    if (kind === 'video') {
+      fd.set('video_model', videoModel);
+      if (isLtxSpicy) {
+        fd.set('resolution', ltxResolution);
+        fd.set('preset', ltxPreset);
+      }
+    }
     // Reused images (from history/gallery or a prior result) são entradas válidas
     // em todo fluxo menos o Face Swap (que usa dois slots dedicados).
     if (kind !== 'faceswap') for (const u of reusedUrls) fd.append('reused_url', u);
@@ -1129,7 +1151,102 @@ export default function GenPanel({
             </div>
           )}
 
-          {isVideoKind && (
+          {kind === 'video' && (
+            <div>
+              <label className="field-label">
+                {lang === 'pt' ? 'Modelo' : lang === 'es' ? 'Modelo' : 'Model'}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  {
+                    id: 'wan' as const,
+                    icon: '🔞',
+                    label: 'WAN',
+                    hint: { en: 'Default', pt: 'Padrão', es: 'Predeterminado' },
+                  },
+                  {
+                    id: 'ltx-spicy' as const,
+                    icon: '🌶️',
+                    label: 'LTX Spicy',
+                    hint: { en: 'LTX 2.3 · spicier', pt: 'LTX 2.3 · mais quente', es: 'LTX 2.3 · más picante' },
+                  },
+                ]).map((m) => {
+                  const active = videoModel === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setVideoModel(m.id)}
+                      className={`text-left rounded-xl border px-4 py-3 transition-colors ${
+                        active ? 'border-lime bg-lime/10' : 'border-white/10 bg-ink-900 hover:border-white/30'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 font-bold text-sm">
+                        <span aria-hidden>{m.icon}</span>
+                        {m.label}
+                      </div>
+                      <div className="text-[11px] text-bone-dim mt-0.5">{m.hint[lang]}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* LTX 2.3 Spicy: duração livre (3–20s), resolução e preset. */}
+          {isLtxSpicy && (
+            <div className="space-y-4">
+              <div>
+                <label className="field-label">
+                  {lang === 'pt' ? 'Duração' : lang === 'es' ? 'Duración' : 'Duration'}
+                </label>
+                <select
+                  value={ltxDuration}
+                  onChange={(e) => setLtxDuration(Number(e.target.value))}
+                  className="input"
+                >
+                  {Array.from({ length: 16 }, (_, i) => i + 5).map((s) => (
+                    <option key={s} value={s}>
+                      {s}s — {spicyVideoCost(s, ltxResolution)} cr
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="field-label">
+                    {lang === 'pt' ? 'Resolução' : lang === 'es' ? 'Resolución' : 'Resolution'}
+                  </label>
+                  <select
+                    value={ltxResolution}
+                    onChange={(e) => setLtxResolution(e.target.value as '480p' | '720p' | '1080p')}
+                    className="input"
+                  >
+                    <option value="480p">480p</option>
+                    <option value="720p">720p</option>
+                    <option value="1080p">1080p</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="field-label">Preset</label>
+                  <select
+                    value={ltxPreset}
+                    onChange={(e) => setLtxPreset(e.target.value as 'tuned' | 'original')}
+                    className="input"
+                  >
+                    <option value="tuned">
+                      {lang === 'pt' ? 'Tuned · recomendado' : lang === 'es' ? 'Tuned · recomendado' : 'Tuned · recommended'}
+                    </option>
+                    <option value="original">
+                      {lang === 'pt' ? 'Original · leve' : lang === 'es' ? 'Original · ligero' : 'Original · light'}
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isVideoKind && !isLtxSpicy && (
             <div>
               <label className="field-label">
                 {lang === 'pt' ? 'Duração' : lang === 'es' ? 'Duración' : 'Duration'}
