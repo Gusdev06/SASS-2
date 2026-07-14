@@ -3,8 +3,12 @@
 // dos exports (`generateImage`, `SEEDREAM_*`, `SeedreamOptions`) é mantido para
 // não quebrar os importadores (`@/lib/replicate`), mas por baixo é a WaveSpeed.
 
-const WAVESPEED_ENDPOINT =
+// `/edit` exige ao menos 1 imagem de referência. Quando não há imagem (modo
+// "create" / text-to-image), usamos o endpoint base do modelo.
+const WAVESPEED_EDIT_ENDPOINT =
   'https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro/edit';
+const WAVESPEED_TEXT_TO_IMAGE_ENDPOINT =
+  'https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro';
 
 // Chave hardcoded a pedido do dono do projeto. ATENÇÃO: é uma key `live` — se o
 // repo vazar, gire a chave no dashboard da WaveSpeed. `process.env` continua
@@ -12,7 +16,7 @@ const WAVESPEED_ENDPOINT =
 const WAVESPEED_API_KEY =
   process.env.WAVESPEED_API_KEY || 'wsk_live_-H4IwS1L8n5aD7vMKoYA2BvIsG84wsYECXp1MYedgDM';
 
-const GENERATION_TIMEOUT_MS = 120_000;
+const GENERATION_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 1200;
 
 /**
@@ -105,15 +109,18 @@ export async function generateImage(
   if (!apiKey) throw new Error('WAVESPEED_API_KEY not set');
 
   const hasImages = !!imageInput && imageInput.length > 0;
+  const endpoint = hasImages ? WAVESPEED_EDIT_ENDPOINT : WAVESPEED_TEXT_TO_IMAGE_ENDPOINT;
 
   const body: Record<string, unknown> = {
     prompt,
-    images: hasImages ? imageInput : [],
     resolution: mapResolution(opts.size),
     output_format: 'jpeg',
     enable_base64_output: false,
     enable_sync_mode: false,
   };
+
+  // `images` só existe no endpoint /edit. Text-to-image não aceita o campo.
+  if (hasImages) body.images = imageInput;
 
   // Só manda aspect_ratio quando é um valor real da API. `match_input_image`
   // (ou vazio) -> omite e deixa a WaveSpeed casar com a 1ª imagem.
@@ -128,7 +135,7 @@ export async function generateImage(
 
   const deadline = Date.now() + GENERATION_TIMEOUT_MS;
 
-  const res = await fetch(WAVESPEED_ENDPOINT, {
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
