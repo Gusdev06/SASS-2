@@ -29,31 +29,6 @@ export async function adjustCreditsAction(_prev: AdminState, formData: FormData)
 }
 
 /**
- * Libera a cota grátis COMPLETA para um usuário ("dar todas as gerações grátis
- * de uma vez"): marca o e-mail como comprador (entitlement) e reabre a janela
- * de 24h zerando os contadores — 5 nano_pro, 5 nano_v2, 2 replicate/undress/
- * edit/faceswap disponíveis na hora. Mesma lógica do webhook do curso, manual.
- */
-export async function grantFullFreeQuotaAction(_prev: AdminState, formData: FormData): Promise<AdminState> {
-  const admin = await getAdminUser();
-  if (!admin) return { error: 'Não autorizado.' };
-
-  const userId = String(formData.get('user_id') ?? '').trim();
-  if (!userId) return { error: 'Usuário inválido.' };
-
-  const service = createServiceClient();
-  const { data, error } = await service.rpc('admin_grant_full_free_quota', { p_user_id: userId });
-  if (error) return { error: error.message };
-  if (data && (data as { ok?: boolean }).ok === false) {
-    const reason = (data as { reason?: string }).reason;
-    return { error: reason === 'no_email' ? 'Usuário sem e-mail cadastrado.' : 'Não foi possível liberar a cota.' };
-  }
-
-  revalidatePath('/admin/users');
-  return { info: 'Cota grátis completa liberada (5 Nano Pro + 5 Nano 2 + 2 Replicate + 2 Undress + 2 Edit + 2 Faceswap).' };
-}
-
-/**
  * Promove ou remove um usuário como admin (profiles.is_admin). Vários usuários
  * podem ser admin ao mesmo tempo. Você não pode remover o seu próprio acesso
  * (evita lockout acidental).

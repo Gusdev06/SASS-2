@@ -16,7 +16,6 @@ import {
   videoCost,
   spicyVideoCost,
 } from '@/lib/prompts';
-import type { FreeBucket, FreeQuotaState } from '@/lib/free-quota';
 
 const ANON_KEY = 'goz_free_used';
 
@@ -41,20 +40,6 @@ async function uploadInputImage(file: File): Promise<string> {
   if (error) throw new Error(`Falha no upload da imagem: ${error.message}`);
   return publicUrl as string;
 }
-
-// Modelo do tab `create` -> bucket de cota grátis. GPT Image não tem cota.
-const MODEL_BUCKET: Record<string, FreeBucket | undefined> = {
-  'gemini-3-pro-image-preview': 'nano_pro',
-  'gemini-3.1-flash-image-preview': 'nano_v2',
-  nsfw: 'replicate',
-};
-
-// Tabs que têm cota grátis própria (2/dia cada). Os demais (enhance/video) não.
-const KIND_BUCKET: Partial<Record<Kind, FreeBucket>> = {
-  undress: 'undress',
-  edit: 'edit',
-  faceswap: 'faceswap',
-};
 
 type Kind = 'enhance' | 'undress' | 'faceswap' | 'edit' | 'video' | 'video_kling' | 'create';
 
@@ -416,13 +401,11 @@ export default function GenPanel({
   lang,
   credits,
   isAnon = false,
-  freeQuota,
   resume,
 }: {
   lang: Lang;
   credits: number;
   isAnon?: boolean;
-  freeQuota?: FreeQuotaState;
   resume?: { kind: 'video'; runId: string } | { kind: 'image'; genId: string } | null;
 }) {
   const [kind, setKind] = useState<Kind>('create');
@@ -521,16 +504,6 @@ export default function GenPanel({
       : videoCost(duration)
     : imageCost(kind, model);
 
-  // Cota grátis diária (compradores do curso). Só vale no tab `create` p/ os
-  // modelos Nano/Replicate. Esgotou -> a geração passa a custar créditos.
-  const entitled = !isAnon && freeQuota?.entitled === true;
-  const currentBucket = kind === 'create' ? MODEL_BUCKET[model] : KIND_BUCKET[kind];
-  const bucketState =
-    freeQuota?.entitled && currentBucket ? freeQuota.buckets[currentBucket] : null;
-  const freeRemaining = bucketState?.remaining ?? 0;
-  const resetAt = freeQuota?.entitled ? freeQuota.resetAt : null;
-  const willBeFree = !isAnon && freeRemaining > 0; // esta geração não gasta crédito
-  const bucketExhausted = entitled && Boolean(currentBucket) && freeRemaining === 0;
   // Reusing a prior generation as input works for every single-image flow.
   // Face Swap needs two distinct inputs, so it stays upload-only.
   const canPickHistory = !isAnon && kind !== 'faceswap';
@@ -540,7 +513,7 @@ export default function GenPanel({
   // Quantos slots ainda cabem ao abrir a galeria (respeita o teto da engine).
   const remainingSlots = Math.max(1, maxFiles - files.length - (isMulti ? reusedUrls.length : 0));
   const blockedAnon = isAnon && (freeUsed || isVideoKind);
-  const insufficient = !isAnon && !willBeFree && credits < cost;
+  const insufficient = !isAnon && credits < cost;
   const needsPrompt = kind === 'edit' || isVideoKind || kind === 'create';
   const promptOk = editPrompt.trim().length > 1;
   const canSubmit =
@@ -718,11 +691,6 @@ export default function GenPanel({
       <div className="border-b border-white/10 px-2 pt-2 flex gap-1 overflow-x-auto">
         {TABS.map((tb) => {
           const active = kind === tb.id;
-          const tabBucket = KIND_BUCKET[tb.id];
-          const tabFree =
-            entitled && tabBucket && freeQuota?.entitled
-              ? freeQuota.buckets[tabBucket].remaining
-              : null;
           return (
             <button
               key={tb.id}
@@ -736,15 +704,6 @@ export default function GenPanel({
             >
               <span className="mr-2">{tb.icon}</span>
               {labelFor(tb, lang)}
-              {tabFree !== null && (
-                <span
-                  className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full align-middle ${
-                    tabFree > 0 ? 'bg-lime/20 text-lime' : 'bg-white/10 text-bone-mute'
-                  }`}
-                >
-                  {tabFree > 0 ? `${tabFree} ${lang === 'en' ? 'free' : 'grátis'}` : '0'}
-                </span>
-              )}
             </button>
           );
         })}
@@ -761,9 +720,6 @@ export default function GenPanel({
               <div className="grid grid-cols-2 gap-2">
                 {MODEL_OPTIONS.map((m) => {
                   const active = model === m.id;
-                  const b = MODEL_BUCKET[m.id];
-                  const fr =
-                    entitled && b && freeQuota?.entitled ? freeQuota.buckets[b].remaining : null;
                   return (
                     <button
                       key={m.id}
@@ -775,17 +731,6 @@ export default function GenPanel({
                           : 'border-white/10 bg-ink-900 hover:border-white/30'
                       }`}
                     >
-                      {fr !== null && (
-                        <span
-                          className={`absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                            fr > 0 ? 'bg-lime/20 text-lime' : 'bg-white/10 text-bone-mute'
-                          }`}
-                        >
-                          {fr > 0
-                            ? `${fr} ${lang === 'en' ? 'free' : 'grátis'}`
-                            : lang === 'pt' ? 'sem grátis' : lang === 'es' ? 'sin gratis' : 'no free'}
-                        </span>
-                      )}
                       <div className="flex items-center gap-2 font-bold text-sm">
                         <span aria-hidden>{m.icon}</span>
                         {m.label}
@@ -1272,33 +1217,6 @@ export default function GenPanel({
             </div>
           )}
 
-          {bucketExhausted && (
-            <div className="border border-lime/30 bg-lime/5 rounded-xl p-4 text-sm space-y-2">
-              <div className="font-bold text-lime flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full bg-lime animate-pulse" />
-                {lang === 'pt'
-                  ? 'Cota grátis de hoje usada nesse modelo'
-                  : lang === 'es'
-                  ? 'Cuota gratis de hoy usada en este modelo'
-                  : "Today's free quota used on this model"}
-              </div>
-              <p className="text-bone-dim">
-                {lang === 'pt' ? (
-                  <>Recarrega em <Countdown resetAt={resetAt} />. Quer continuar agora? Cada imagem custa <strong className="text-bone">{cost} cr</strong>.</>
-                ) : lang === 'es' ? (
-                  <>Se recarga en <Countdown resetAt={resetAt} />. ¿Seguir ahora? Cada imagen cuesta <strong className="text-bone">{cost} cr</strong>.</>
-                ) : (
-                  <>Resets in <Countdown resetAt={resetAt} />. Keep going now? Each image costs <strong className="text-bone">{cost} cr</strong>.</>
-                )}
-              </p>
-              {credits < cost && (
-                <Link href="/pricing" className="btn-primary text-xs mt-1">
-                  {lang === 'pt' ? 'Comprar créditos' : lang === 'es' ? 'Comprar créditos' : 'Buy credits'} →
-                </Link>
-              )}
-            </div>
-          )}
-
           {insufficient && (
             <div className="border border-red-500/30 bg-red-500/10 rounded-xl p-4 text-sm space-y-2">
               <div className="font-bold text-red-400">⚠ {t('insufficient', lang)}</div>
@@ -1359,12 +1277,6 @@ export default function GenPanel({
                 <Row label={lang === 'pt' ? 'Restante' : lang === 'es' ? 'Restante' : 'Remaining'} value={freeUsed ? '0' : '1'} />
                 <Row label={lang === 'pt' ? 'Saída' : lang === 'es' ? 'Salida' : 'Output'} value={lang === 'pt' ? 'com marca' : lang === 'es' ? 'con marca' : 'watermarked'} />
               </>
-            ) : willBeFree ? (
-              <>
-                <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value={lang === 'en' ? 'FREE' : 'GRÁTIS'} accent />
-                <Row label={lang === 'pt' ? 'Grátis hoje' : lang === 'es' ? 'Gratis hoy' : 'Free today'} value={`${freeRemaining}/${bucketState?.limit ?? 0}`} />
-                <Row label={lang === 'pt' ? 'Saldo' : lang === 'es' ? 'Saldo' : 'Balance'} value={`${credits} cr`} />
-              </>
             ) : (
               <>
                 <Row label={lang === 'pt' ? 'Custo' : lang === 'es' ? 'Costo' : 'Cost'} value={`${cost} cr`} accent />
@@ -1381,7 +1293,7 @@ export default function GenPanel({
                   <span className="inline-block w-4 h-4 border-2 border-ink-900/30 border-t-ink-900 rounded-full animate-spin" />
                   {lang === 'pt' ? 'Enviando…' : lang === 'es' ? 'Enviando…' : 'Sending…'}
                 </span>
-              ) : isAnon || willBeFree ? (
+              ) : isAnon ? (
                 <>{lang === 'pt' ? 'Gerar grátis' : lang === 'es' ? 'Generar gratis' : 'Render free'} →</>
               ) : (
                 <>{t('generate', lang)} → {cost} CR</>
@@ -1469,22 +1381,6 @@ export default function GenPanel({
       )}
     </section>
   );
-}
-
-/** Contagem regressiva HH:MM:SS até `resetAt` (reset da cota grátis de 24h). */
-function Countdown({ resetAt }: { resetAt: string | null }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  if (!resetAt) return <span className="font-mono text-bone">24h</span>;
-  const ms = Math.max(0, new Date(resetAt).getTime() - now);
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  const s = Math.floor((ms % 60_000) / 1000);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return <span className="font-mono text-bone">{`${pad(h)}:${pad(m)}:${pad(s)}`}</span>;
 }
 
 function Row({ label, value, accent }: { label: string; value: string; accent?: boolean }) {

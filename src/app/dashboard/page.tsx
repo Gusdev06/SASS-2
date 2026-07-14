@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { getUser, getProfile } from '@/lib/auth';
-import { getFreeQuota } from '@/lib/free-quota';
 
 export const maxDuration = 300;
 import { t } from '@/lib/i18n';
@@ -65,7 +64,7 @@ export default async function DashboardPage() {
   // Gerações ainda em andamento (rodando no background). Limitamos às recentes
   // (~10 min) para não "ressuscitar" linhas antigas travadas no carregamento.
   const pendingCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-  const [profile, { data: recent }, { count: totalRenders }, freeQuota, { data: pendingRows }] =
+  const [profile, { data: recent }, { count: totalRenders }, { data: pendingRows }] =
     await Promise.all([
       getProfile(),
       supabase
@@ -80,7 +79,6 @@ export default async function DashboardPage() {
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .not('output_url', 'is', null),
-      getFreeQuota(user.id),
       supabase
         .from('generations')
         .select('id, kind, input_urls, created_at')
@@ -145,7 +143,7 @@ export default async function DashboardPage() {
 
       <section>
         <h2 className="text-2xl font-bold tracking-tight mb-5">{t('newRender', lang)}</h2>
-        <GenPanel lang={lang} credits={credits} freeQuota={freeQuota} resume={resume} />
+        <GenPanel lang={lang} credits={credits} resume={resume} />
       </section>
 
       <section>

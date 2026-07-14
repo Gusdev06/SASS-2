@@ -33,7 +33,6 @@ import {
 } from '@/lib/wavespeed-video';
 import { queueRun, uploadAsset } from '@/lib/comfydeploy';
 import { persistGeneration, uploadBufferToSupabase } from '@/lib/storage';
-import { consumeFreeQuota, refundFreeQuota, type FreeBucket } from '@/lib/free-quota';
 import {
   imageCost,
   ENHANCE_PROMPT,
@@ -285,27 +284,6 @@ async function runImageEngine(
   }
 }
 
-/**
- * Mapeia a geração para o bucket de cota grátis diária (compradores do curso).
- *   create + Nano Banana Pro -> nano_pro
- *   create + Nano Banana 2   -> nano_v2
- *   create + Replicate/NSFW  -> replicate
- *   undress / edit / faceswap -> bucket de mesmo nome (2/dia cada)
- * GPT Image, enhance e video NÃO têm cota grátis (sempre créditos).
- */
-function freeBucketFor(kind: Kind, opts?: CreateOpts): FreeBucket | null {
-  if (kind === 'undress') return 'undress';
-  if (kind === 'edit') return 'edit';
-  if (kind === 'faceswap') return 'faceswap';
-  if (kind === 'create' && opts) {
-    if (opts.engine === 'nano') {
-      return opts.nano.model === NANO_BANANA_MODELS.v2 ? 'nano_v2' : 'nano_pro';
-    }
-    if (opts.engine === 'replicate') return 'replicate';
-  }
-  return null; // gpt / enhance / video
-}
-
 async function filesToDataUris(files: File[]): Promise<string[]> {
   const uris: string[] = [];
   for (const f of files) {
@@ -492,29 +470,19 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
 
   const service = createServiceClient();
 
-  // Cota grátis diária (compradores do curso) cobre as gerações do tab `create`
-  // antes de tocar nos créditos. Esgotou a cota -> cai para créditos. Os demais
-  // flows nunca têm bucket, então seguem direto no débito.
-  const freeBucket = freeBucketFor(kind, createOpts);
-  const usedFree = freeBucket ? await consumeFreeQuota(user.id, freeBucket) : false;
-
   // LTX Spicy tem preço próprio (por duração 5–20s + resolução, margem travada);
   // WAN/Kling usam videoCost sobre VIDEO_DURATIONS.
-  const cost = usedFree
-    ? 0
-    : isVideoKind
+  const cost = isVideoKind
     ? spicyVideo
       ? spicyVideoCost(spicyDuration, spicyResolution)
       : videoCost(videoDuration)
     : imageCost(kind, rawModel);
-  if (!usedFree) {
-    const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
-      p_user_id: user.id,
-      p_amount: cost,
-    });
-    if (debitErr) return { ok: false, error: debitErr.message };
-    if (!debited) return { ok: false, error: 'Créditos insuficientes.' };
-  }
+  const { data: debited, error: debitErr } = await service.rpc('debit_credits', {
+    p_user_id: user.id,
+    p_amount: cost,
+  });
+  if (debitErr) return { ok: false, error: debitErr.message };
+  if (!debited) return { ok: false, error: 'Créditos insuficientes.' };
 
   // Insert pending row up-front so every debit has an auditable counterpart.
   const { data: genRow, error: insertErr } = await service
@@ -551,8 +519,6 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       } catch (err) {
         const reason = err instanceof Error ? err.message : 'Falha na geração.';
         await bg.rpc('refund_generation', { p_gen_id: genId, p_reason: reason });
-        // Geração grátis falhou -> devolve a unidade da cota (não houve crédito).
-        if (usedFree && freeBucket) await refundFreeQuota(user.id, freeBucket);
       }
     });
     const { data: profile } = await service
@@ -654,8 +620,6 @@ export async function generateAction(formData: FormData): Promise<GenResult> {
       p_gen_id: genId,
       p_reason: reason,
     });
-    // Geração grátis falhou -> devolve a unidade da cota (não houve crédito).
-    if (usedFree && freeBucket) await refundFreeQuota(user.id, freeBucket);
     return { ok: false, error: reason, refunded: Boolean(refunded) };
   }
 }
